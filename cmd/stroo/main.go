@@ -91,7 +91,7 @@ func run(pass *codescan.Pass) (interface{}, error) {
 			}
 		}
 	})
-
+	result.RawAST = defs // exposed just in case someone wants to get wild
 	if err != nil {
 		return nil, err
 	}
@@ -163,13 +163,64 @@ type Doc struct {
 	Imports          []string
 	GeneratedMethods []string
 	PackageInfo      *PackageInfo
-	MainStruct       *TypeInfo
-	RelatedStruct    *TypeInfo
-	TypeName         string // from flags
-	OutputFile       string // from flags
-	TemplateFile     string // from flags
-	PeerName         string // from flags
-	TestMode         bool   // from flags
+	CurrentType      *TypeInfo
+	SelectedType     string                 // from flags
+	OutputFile       string                 // from flags
+	TemplateFile     string                 // from flags
+	PeerName         string                 // from flags
+	TestMode         bool                   // from flags
+	keeper           map[string]interface{} // template keeps data in here, key-value, as they need
+}
+
+func (d *Doc) SetSelectedTypeNotNil() bool {
+	if d.CurrentType == nil {
+		return true
+	}
+	return false
+}
+
+func (d *Doc) SetSelectedTypeInfo(newType *TypeInfo) *TypeInfo {
+	if newType == nil {
+		log.Println("error : new type is nil")
+		return nil
+	}
+	d.SelectedType = newType.TypeName
+	found := false
+	d.CurrentType, found = d.PackageInfo.StructDefs[newType.TypeName]
+	if !found {
+		log.Printf("%q not found while setting selected type", newType.TypeName)
+	}
+	return d.CurrentType
+}
+
+func (d *Doc) SetSelectedType(newType string) *TypeInfo {
+	d.SelectedType = newType
+	found := false
+	d.CurrentType, found = d.PackageInfo.StructDefs[newType]
+	if !found {
+		log.Printf("%q not found while setting selected type", newType)
+	}
+	return d.CurrentType
+}
+
+func (d *Doc) GetStructByKey(key string) *TypeInfo {
+	structInfo, ok := d.PackageInfo.StructDefs[key]
+	if ok {
+		return structInfo
+	}
+	return nil
+}
+
+// returns true if the key exist and will overwrite
+func (d *Doc) Store(key string, value interface{}) bool {
+	_, has := d.keeper[key]
+	d.keeper[key] = value
+	return has
+}
+
+func (d *Doc) Retrieve(key string) interface{} {
+	value, _ := d.keeper[key]
+	return value
 }
 
 func (d *Doc) AddToImports(imp string) string {
@@ -231,6 +282,9 @@ func main() {
 		"trim":          strings.TrimSpace,
 		"toJsonName":    swag.ToJSONName, // TODO : import all, but make it field functionality
 		"sort":          SortFields,      // TODO : test sort fields (fields implements the interface)
+		"add": func(a, b int) int {
+			return a + b
+		},
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -287,16 +341,16 @@ func main() {
 		}
 		doc := Doc{
 			PackageInfo:  packageInfo,
-			MainStruct:   packageInfo.GetStructByKey(*typeName),
-			TypeName:     *typeName,
+			SelectedType: *typeName,
 			OutputFile:   *outputFile,
 			PeerName:     *peerStruct,
 			TemplateFile: *templateFile,
 			TestMode:     *testMode,
+			keeper:       make(map[string]interface{}),
 		}
 		buf := bytes.Buffer{}
 		if err := tmpl.Execute(&buf, &doc); err != nil {
-			log.Fatalf("failed to parse template %s: %s", *templateFile, err)
+			log.Fatalf("failed to parse template %s: %s\nPartial result:\n%s", *templateFile, err, buf.String())
 		}
 		// forced add header
 		var src []byte

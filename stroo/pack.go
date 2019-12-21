@@ -20,14 +20,7 @@ type PackageInfo struct {
 	Interfaces Interfaces
 	StructDefs map[string]*TypeInfo
 	FieldsDefs map[string]*FieldInfo
-}
-
-func (pkg *PackageInfo) GetStructByKey(key string) *TypeInfo {
-	structInfo, ok := pkg.StructDefs[key]
-	if ok {
-		return structInfo
-	}
-	return nil
+	RawAST     map[*ast.Ident]types.Object
 }
 
 func (pkg *PackageInfo) PostProcess() error {
@@ -76,6 +69,7 @@ func (pkg *PackageInfo) PostProcess() error {
 						field.IsArray = true
 						continue
 					}
+					// attempt to find it in structs
 					if refInfo, arrayFound := pkg.StructDefs[arrayInfo.TypeName]; arrayFound {
 						field.IsStruct = false
 						field.IsArray = true
@@ -84,7 +78,21 @@ func (pkg *PackageInfo) PostProcess() error {
 						field.ArrayReference = arrayInfo // set it in case it's needed
 						continue
 					}
-					log.Fatalf("Struct not found %q:%q -> data :\n %#v", field.Name, arrayInfo.TypeName, arrayInfo)
+					// attempt to find it in fields
+					if refInfo, fieldFound := pkg.FieldsDefs[arrayInfo.TypeName]; fieldFound {
+						fmt.Sprintf("Field %#v", refInfo)
+						field.IsStruct = false
+						field.IsArray = true
+						//arrayInfo.Reference = refInfo
+						//field.Reference = refInfo        // the real reference to the struct
+						field.ArrayReference = arrayInfo // set it in case it's needed
+						continue
+					}
+					// finally, we have fields from different packages
+					if arrayInfo.Package != field.Package {
+						continue
+					}
+					log.Fatalf("Struct (on array) not found\n-> array :\n %#v\n-> field :\n %#v", arrayInfo, field)
 
 				}
 				log.Fatalf("Struct not found %q:%q -> data :\n %#v", field.Name, field.TypeName, field)
@@ -133,6 +141,12 @@ func (pkg *PackageInfo) ReadPointer(ptr *ast.StarExpr, info *FieldInfo) error {
 	switch ptrType := ptr.X.(type) {
 	case *ast.Ident:
 		pkg.ReadIdent(ptrType, info)
+	case *ast.SelectorExpr:
+		// fields from other packages
+		if ident, ok := ptrType.X.(*ast.Ident); ok {
+			info.Package = ident.Name
+			info.TypeName = ptrType.Sel.Name
+		}
 	default:
 		return fmt.Errorf(ErrNotImplemented, ptr, info.Name)
 	}
@@ -217,6 +231,12 @@ func (pkg *PackageInfo) ReadStructInfo(spec ast.Spec, obj types.Object, comment 
 				return fmt.Errorf("error : array %q already defined", newField.Name)
 			}
 			pkg.FieldsDefs[newField.Name] = &newField
+		case *ast.SelectorExpr:
+			// fields from other packages
+			if ident, ok := fieldType.X.(*ast.Ident); ok {
+				newField.Package = ident.Name
+				newField.TypeName = fieldType.Sel.Name
+			}
 		default:
 			return fmt.Errorf(ErrNotImplemented, fieldType, info.Name)
 		}

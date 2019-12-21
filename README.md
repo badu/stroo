@@ -17,3 +17,7 @@ files indicated as output, in the same package with the struct declaration.
 Currently, this is work in progress - the proof of concept is under heavy construction.
 
 Code scan folder contains code taken (and modified) from [tools](golang.org/x/tools) - static analysis part. Thank you good authors!
+
+### Notes
+
+Store and retrieve from template : templates can store and retrieve key-values by using {{ .Store <key> <value> }} and retrieve them with {{ .Retrieve <key> }} where <key> is a `string` and <value> is `interface{}`.
