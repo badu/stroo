@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -22,90 +21,123 @@ func TestArrayDefinition(t *testing.T) {
 	cases := []testCase{
 		{
 			name:       "p",
-			input:      `package p; type T []int;`,
-			outputName: "T",
-			output:     FieldInfo{Name: "T", TypeName: "int", IsBasic: true, IsArray: true},
+			input:      `package p; type T0 []int;`,
+			outputName: "T0",
+			output:     &FieldInfo{Name: "T0", TypeName: "int", IsBasic: true, IsArray: true},
 		}, // 0
 		{
 			name:       "p",
-			input:      `package p; type T []*int;`,
-			outputName: "T",
-			output:     FieldInfo{Name: "T", TypeName: "int", IsBasic: true, IsPointer: true, IsArray: true},
+			input:      `package p; type T1 []*int;`,
+			outputName: "T1",
+			output:     &FieldInfo{Name: "T1", TypeName: "int", IsBasic: true, IsPointer: true, IsArray: true},
 		}, // 1
 		{
 			name:       "",
-			input:      `package p; type T [][]int;`,
-			outputName: "T",
-			output:     `*ast.ArrayType found on "T" (not implemented)`,
+			input:      `package p; type T2 [][]int;`,
+			outputName: "T2",
+			output:     `*ast.ArrayType found on "T2" (not implemented)`,
 		}, // 2
 		{
 			name:       "",
-			input:      `package p; type T []map[string]string;`,
-			outputName: "T",
-			output:     `*ast.MapType found on "T" (not implemented)`,
+			input:      `package p; type T3 []map[string]string;`,
+			outputName: "T3",
+			output:     `*ast.MapType found on "T3" (not implemented)`,
 		}, // 3
 		{
 			name:       "",
-			input:      `package p; type S struct { Name string }; type T []map[S]string;`,
-			outputName: "T",
-			output:     `*ast.MapType found on "T" (not implemented)`,
+			input:      `package p; type S struct { Name string }; type T4 []map[S]string;`,
+			outputName: "T4",
+			output:     `*ast.MapType found on "T4" (not implemented)`,
 		}, // 4
 		{
 			name:       "",
-			input:      `package p; type S struct { Name string }; type T []*map[S]string;`,
-			outputName: "T",
-			output:     `*ast.StarExpr found on "T" (not implemented)`,
+			input:      `package p; type S struct { Name string }; type T5 []*map[S]string;`,
+			outputName: "T5",
+			output:     `*ast.StarExpr found on "T5" (not implemented)`,
 		}, // 5
 		{
 			name:       "",
-			input:      `package p; type T []struct{ Name string };`,
-			outputName: "T",
-			output:     `*ast.StructType found on "T" (not implemented)`,
+			input:      `package p; type T6 []struct{ Name string };`,
+			outputName: "T6",
+			output:     `*ast.StructType found on "T6" (not implemented)`,
 		}, // 6
 		{
 			name:       "",
-			input:      `package p; type T []chan string;`,
-			outputName: "T",
-			output:     `*ast.ChanType found on "T" (not implemented)`,
+			input:      `package p; type T7 []chan string;`,
+			outputName: "T7",
+			output:     `*ast.ChanType found on "T7" (not implemented)`,
 		}, // 7
 		{
 			name:       "",
-			input:      `package p; type T []*chan string;`,
-			outputName: "T",
-			output:     `*ast.StarExpr found on "T" (not implemented)`,
+			input:      `package p; type T8 []*chan string;`,
+			outputName: "T8",
+			output:     `*ast.StarExpr found on "T8" (not implemented)`,
 		}, // 8
 		{
 			name:       "",
-			outputName: "T",
-			input:      `package p; type T []chan struct{};`,
+			outputName: "T9",
+			input:      `package p; type T9 []chan struct{};`,
 		}, // 9
 		{
 			name:       "",
-			input:      `package p; type T []*chan *struct{};`,
-			outputName: "T",
+			input:      `package p; type T10 []*chan *struct{};`,
+			outputName: "T10",
 		}, // 10
 		{
 			name:       "",
-			input:      `package p; type T []*struct{ Name string };`,
-			outputName: "T",
-			output:     `*ast.StarExpr found on "T" (not implemented)`,
+			input:      `package p; type T11 []*struct{ Name string };`,
+			outputName: "T11",
+			output:     `*ast.StarExpr found on "T11" (not implemented)`,
 		}, // 11
 		{
 			name:       "",
-			input:      `package p; type S struct{ Name string }; type T []S;`,
-			outputName: "T",
-			output:     FieldInfo{Name: "T", TypeName: "S", IsStruct: true, IsArray: true},
+			input:      `package p; type S struct{ Name string }; type T12 []S;`,
+			outputName: "T12",
+			output: &FieldInfo{
+				Name:     "T12",
+				TypeName: "S",
+				IsArray:  true,
+				Reference: &TypeInfo{
+					Name: "S",
+					Fields: Fields{
+						&FieldInfo{
+							Name:       "Name",
+							TypeName:   "string",
+							IsBasic:    true,
+							IsExported: true,
+						},
+					},
+				},
+			},
 		}, // 12
 		{
 			name:       "",
-			input:      `package p; type S struct{ Name string }; type T []*S;`,
-			outputName: "T",
-			output:     FieldInfo{Name: "T", TypeName: "S", IsStruct: true, IsArray: true, IsPointer: true},
+			input:      `package p; type S struct{ Name string }; type T13 []*S;`,
+			outputName: "T13",
+			output: &FieldInfo{
+				Name:      "T13",
+				TypeName:  "S",
+				IsPointer: true,
+				IsArray:   true,
+				Reference: &TypeInfo{
+					Name: "S",
+					Fields: Fields{
+						&FieldInfo{
+							Name:       "Name",
+							TypeName:   "string",
+							IsBasic:    true,
+							IsExported: true,
+						},
+					},
+				},
+			},
 		}, // 13
 	}
 
 	for idx, cCase := range cases {
-		result := PackageInfo{Name: "test", StructDefs: make(map[string]*TypeInfo), ArrayDefs: make(map[string]*FieldInfo)}
+		result := PackageInfo{Name: "test", StructDefs: make(map[string]*TypeInfo), FieldsDefs: make(map[string]*FieldInfo)}
+		VisitedStructs = make(map[string]struct{}) // reset
+		VisitedFields = make(map[string]string)    // reset
 		fileSet := token.NewFileSet()
 		astNodes, err := parser.ParseFile(fileSet, cCase.name, cCase.input, parser.DeclarationErrors|parser.AllErrors)
 		if err != nil {
@@ -125,6 +157,13 @@ func TestArrayDefinition(t *testing.T) {
 								t.Errorf("%d.errors not equal:\nexpected output:\n`%v`\nreceived:\n`%v`", idx, cCase.output, infoErr)
 							}
 						}
+					case *ast.StructType:
+						infoErr = result.ReadStructInfo(spec, nil, nodeType.Doc)
+						if infoErr != nil && cCase.output != nil {
+							if infoErr.Error() != cCase.output {
+								t.Errorf("%d.errors not equal:\nexpected output:\n`%v`\nreceived:\n`%v`", idx, cCase.output, infoErr)
+							}
+						}
 					}
 				}
 			}
@@ -137,8 +176,27 @@ func TestArrayDefinition(t *testing.T) {
 			if cCase.outputName == "" {
 				t.Skipf("%d. output is no-name", idx)
 			}
-			if !reflect.DeepEqual(result.ArrayDefs[cCase.outputName], cCase.output) {
-				t.Errorf("%d. output error :\nexpected\n`%#v`\ngot\n`%#v`", idx, cCase.output, result.ArrayDefs[cCase.outputName])
+			def := result.FieldsDefs[cCase.outputName]
+			if !def.IsBasic {
+				structInfo, found := result.StructDefs[def.TypeName]
+				if !found {
+					t.Fatalf("Not found %q array data :\n %#v", def.TypeName, def)
+				}
+				def.Reference = structInfo
+			}
+			def.IsStruct = false
+			typed, ok := cCase.output.(*FieldInfo)
+			if !ok {
+				t.Fatalf("error : expecting output to be *FieldInfo and it's not")
+			}
+			var expected, received strings.Builder
+			typed.Debug(&expected, 0)
+			def.Debug(&received, 0)
+			// because circular references, we cannot use reflect.DeepEqual
+			if received.String() != expected.String() {
+				t.Logf("%d. output error: GOT:\n%s\nWANT:\n%s", idx, received.String(), expected.String())
+			} else {
+				//t.Logf("test #%d:\n%s\n%s", idx, cCase.input, received.String())
 			}
 		}
 	}
@@ -146,11 +204,10 @@ func TestArrayDefinition(t *testing.T) {
 
 func TestStructDefinition(t *testing.T) {
 	cases := []testCase{
-
 		{
 			name: "p",
 			input: `package p 
-					type T struct{
+					type T1 struct{
 						S // embedded
 						*S2 // embedded pointer
 						error // embedded error 
@@ -163,16 +220,15 @@ func TestStructDefinition(t *testing.T) {
 					}
 					type S2 struct { 
 						Name string ` + "`json:\"s2.name\"`" + `
-					}
-					func add(a,b int){}`,
-			outputName: "T",
+					}`,
+			outputName: "T1",
 			output: &TypeInfo{
-				Name: "T",
+				Name: "T1",
 				Fields: Fields{
 					&FieldInfo{
 						TypeName:   "S",
-						IsStruct:   true,
 						IsEmbedded: true,
+						IsStruct:   true,
 						Reference: &TypeInfo{
 							Name: "S",
 							Fields: Fields{
@@ -191,8 +247,8 @@ func TestStructDefinition(t *testing.T) {
 					&FieldInfo{
 						TypeName:   "S2",
 						IsPointer:  true,
-						IsStruct:   true,
 						IsEmbedded: true,
+						IsStruct:   true,
 						Reference: &TypeInfo{
 							Name: "S2",
 							Fields: Fields{
@@ -240,30 +296,42 @@ func TestStructDefinition(t *testing.T) {
 		{
 			name: "p",
 			input: `package p 
-					type T struct{
+					type T2 struct{
+						S S
 						Itemz	Items ` + "`json:\"itmz\"`" + `
 						Pricez	Prices ` + "`json:\"prcz\"`" + `
                     }
+					type S struct{}
 					type Prices []Price 
 					type Items []*Item
 					type Item struct { 
 						Name string ` + "`json:\"name\"`" + `
+						Stock float64
 					}
 					type Price struct { 
 						Name string ` + "`json:\"name\"`" + `
+						Value float64
 					}`,
-			outputName: "T",
+			outputName: "T2",
 			output: &TypeInfo{
-				Name: "T",
+				Name: "T2",
 				Fields: Fields{
+					&FieldInfo{
+						Name:       "S",
+						TypeName:   "S",
+						IsExported: true,
+						IsStruct:   true,
+					},
 					&FieldInfo{
 						Name:       "Itemz",
 						TypeName:   "Items",
-						IsArray:    true,
 						IsExported: true,
+						Tags: &Tags{
+							&Tag{Key: "json", Name: "itmz"},
+						},
+						IsArray: true,
 						Reference: &TypeInfo{
-							Name:               "Item",
-							ReferenceIsPointer: true,
+							Name: "Item",
 							Fields: Fields{
 								&FieldInfo{
 									Name:       "Name",
@@ -280,8 +348,11 @@ func TestStructDefinition(t *testing.T) {
 					&FieldInfo{
 						Name:       "Pricez",
 						TypeName:   "Prices",
-						IsArray:    true,
 						IsExported: true,
+						Tags: &Tags{
+							&Tag{Key: "json", Name: "prcz"},
+						},
+						IsArray: true,
 						Reference: &TypeInfo{
 							Name: "Price",
 							Fields: Fields{
@@ -303,24 +374,24 @@ func TestStructDefinition(t *testing.T) {
 		{
 			name: "p",
 			input: `package p 
-					type T struct{
+					type T3 struct{
 						Items
                     }
 					type Items []*Item
 					type Item struct { 
 						Name string
 					}`,
-			outputName: "T",
+			outputName: "T3",
 			output: &TypeInfo{
-				Name: "T",
+				Name: "T3",
 				Fields: Fields{
 					&FieldInfo{
 						TypeName:   "Items",
 						IsArray:    true,
 						IsEmbedded: true,
 						Reference: &TypeInfo{
-							Name:               "Item",
-							ReferenceIsPointer: true,
+							Name: "Item",
+
 							Fields: Fields{
 								&FieldInfo{
 									Name:       "Name",
@@ -337,71 +408,156 @@ func TestStructDefinition(t *testing.T) {
 		{
 			name: "p",
 			input: `package p 
-					type T struct{
-						Child T
-						PtrChild *T
+					type TR struct{
+						Child TR ` + "`json:\"child\"`" + `
+						PtrChild *TR` + "`json:\"ptr_child\"`" + `
                     }`,
-			outputName: "T",
+			outputName: "TR",
 			output: &TypeInfo{
-				Name: "T",
+				Name: "TR",
 				Fields: Fields{
 					&FieldInfo{
-						TypeName:   "Items",
-						IsArray:    true,
-						IsEmbedded: true,
-						Reference: &TypeInfo{
-							Name:               "Item",
-							ReferenceIsPointer: true,
-							Fields: Fields{
-								&FieldInfo{
-									Name:       "Name",
-									TypeName:   "string",
-									IsBasic:    true,
-									IsExported: true,
-								},
-							},
+						Name:       "Child",
+						TypeName:   "TR",
+						IsExported: true,
+						Tags: &Tags{
+							&Tag{Key: "json", Name: "child"},
 						},
+						IsStruct: true,
+					},
+					&FieldInfo{
+						Name:       "PtrChild",
+						TypeName:   "TR",
+						IsPointer:  true,
+						IsExported: true,
+						Tags: &Tags{
+							&Tag{Key: "json", Name: "ptr_child"},
+						},
+						IsStruct: true,
 					},
 				},
 			},
 		}, // 3 - circular reference
 		{
 			name: "p",
-			input: `package p 
-					type T struct{
-						S S
-                    }
+			input: `package p
+					type T4 struct{
+						S S ` + "`json:\"s\"`" + `
+					}
 					type S struct{
-						T T
-                    }`,
-			outputName: "T",
+						T T4 ` + "`json:\"t\"`" + `
+					}`,
+			outputName: "T4",
 			output: &TypeInfo{
-				Name: "T",
+				Name: "T4",
 				Fields: Fields{
 					&FieldInfo{
-						TypeName:   "Items",
-						IsArray:    true,
-						IsEmbedded: true,
+						Name:       "S",
+						TypeName:   "S",
+						IsStruct:   true,
+						IsExported: true,
+						Tags: &Tags{
+							&Tag{Key: "json", Name: "s"}},
 						Reference: &TypeInfo{
-							Name:               "Item",
-							ReferenceIsPointer: true,
+							Name: "S",
+
 							Fields: Fields{
 								&FieldInfo{
-									Name:       "Name",
-									TypeName:   "string",
-									IsBasic:    true,
-									IsExported: true,
+									Name:     "T",
+									TypeName: "T4",
 								},
 							},
 						},
 					},
 				},
 			},
-		}, // 3 - indirect circular reference
+		}, // 4 - indirect circular reference
+		{
+			name: "p",
+			input: `	package p
+						type T5 struct{
+							Children Children ` + "`json:\"children\"`" + `
+							StarChildren StarChildren ` + "`json:\"star_children\"`" + `
+						}
+						type Children []T5
+						type StarChildren []*T5`,
+			outputName: "T5",
+			output: &TypeInfo{
+				Name: "T5",
+				Fields: Fields{
+					&FieldInfo{
+						Name:       "Children",
+						TypeName:   "Children",
+						IsExported: true,
+						Tags: &Tags{
+							&Tag{Key: "json", Name: "children"},
+						},
+						IsArray: true,
+						Reference: &TypeInfo{
+							Name: "T5",
+							Fields: Fields{
+								&FieldInfo{
+									Name:       "Children",
+									TypeName:   "Children",
+									IsExported: true,
+									Tags: &Tags{
+										&Tag{Key: "json", Name: "children"},
+									},
+									IsArray: true,
+								},
+								&FieldInfo{
+									Name:       "StarChildren",
+									TypeName:   "StarChildren",
+									IsExported: true,
+									Tags: &Tags{
+										&Tag{Key: "json", Name: "star_children"},
+									},
+									IsArray: true,
+								},
+							},
+						},
+					},
+					&FieldInfo{
+						Name:       "StarChildren",
+						TypeName:   "StarChildren",
+						IsExported: true,
+						Tags: &Tags{
+							&Tag{Key: "json", Name: "star_children"},
+						},
+						IsArray: true,
+						Reference: &TypeInfo{
+							Name: "T5",
+							Fields: Fields{
+								&FieldInfo{
+									Name:       "Children",
+									TypeName:   "Children",
+									IsExported: true,
+									Tags: &Tags{
+										&Tag{Key: "json", Name: "children"},
+									},
+									IsArray: true,
+								},
+								&FieldInfo{
+									Name:       "StarChildren",
+									TypeName:   "StarChildren",
+									IsExported: true,
+									Tags: &Tags{
+										&Tag{Key: "json", Name: "star_children"},
+									},
+									IsArray: true,
+								},
+							},
+						},
+					},
+				},
+			},
+		}, // 5 - indirect circular reference via array
 	}
 
 	for idx, cCase := range cases {
-		result := PackageInfo{Name: "test", StructDefs: make(map[string]*TypeInfo), ArrayDefs: make(map[string]*FieldInfo)}
+		result := PackageInfo{Name: "test", StructDefs: make(map[string]*TypeInfo), FieldsDefs: make(map[string]*FieldInfo)}
+		VisitedStructs = make(map[string]struct{}) // reset
+		VisitedFields = make(map[string]string)    // reset
 		fileSet := token.NewFileSet()
 		astNodes, err := parser.ParseFile(fileSet, cCase.name, cCase.input, parser.DeclarationErrors|parser.AllErrors)
 		if err != nil {
@@ -442,16 +598,21 @@ func TestStructDefinition(t *testing.T) {
 				t.Fatalf("%d. Post process fatal error : %v", idx, err)
 			}
 			def := result.Types.Extract(cCase.outputName)
-			if !reflect.DeepEqual(def, cCase.output) {
-				var sb1, sb2 strings.Builder
-				typed, ok := cCase.output.(*TypeInfo)
-				if ok {
-					typed.Debug(&sb1, 1)
-					def.Debug(&sb2, 1)
-					t.Errorf("%d. output error : WANT\n%s\n\t\tGOT\n%s", idx, sb1.String(), sb2.String())
-				} else {
-					t.Fatalf("error : expecting output to be *TypeInfo and it's not")
-				}
+			if def == nil {
+				t.Fatalf("You forgot to set outputname so I can select definition")
+			}
+			typed, ok := cCase.output.(*TypeInfo)
+			if !ok {
+				t.Fatalf("error : expecting output to be *TypeInfo and it's not")
+			}
+			var expected, received strings.Builder
+			typed.Debug(&expected, 0)
+			def.Debug(&received, 0)
+			// because circular references, we cannot use reflect.DeepEqual
+			if received.String() != expected.String() {
+				t.Logf("%d. output error: GOT:\n%s\nWANT:\n%s", idx, received.String(), expected.String())
+			} else {
+				//t.Logf("test #%d:\n%s\n%s", idx, cCase.input, received.String())
 			}
 		}
 	}

@@ -19,7 +19,7 @@ type PackageInfo struct {
 	Types      TypesSlice
 	Interfaces Interfaces
 	StructDefs map[string]*TypeInfo
-	ArrayDefs  map[string]*FieldInfo
+	FieldsDefs map[string]*FieldInfo
 }
 
 func (pkg *PackageInfo) GetStructByKey(key string) *TypeInfo {
@@ -48,7 +48,7 @@ func (pkg *PackageInfo) PostProcess() error {
 		}
 
 		// look in arrays
-		arrayInfo, found := pkg.ArrayDefs[fn.ReceiverType]
+		arrayInfo, found := pkg.FieldsDefs[fn.ReceiverType]
 		if found {
 			arrayInfo.MethodList = append(arrayInfo.MethodList, fn)
 			continue
@@ -60,38 +60,35 @@ func (pkg *PackageInfo) PostProcess() error {
 		result = append(result, fn)
 	}
 	pkg.Functions = result
-
-	// fix array references
-	for _, arrValue := range pkg.ArrayDefs {
-		structInfo, found := pkg.StructDefs[arrValue.TypeName]
-		if found {
-			arrValue.Reference = structInfo
-			continue
-		}
-		log.Fatalf("Not found %q array data :\n %#v", arrValue.TypeName, arrValue)
-	}
-
-	// create references
+	// fix structs that are actually arrays + set the references
 	for _, typeDef := range pkg.Types {
 		for _, field := range typeDef.Fields {
 			if field.IsStruct {
-				// look into structs
-				structInfo, found := pkg.StructDefs[field.TypeName]
-				if found {
-					field.Reference = structInfo
+				if refInfo, found := pkg.StructDefs[field.TypeName]; found {
+					field.Reference = refInfo
+					field.IsArray = false
 					continue
 				}
+				if arrayInfo, found := pkg.FieldsDefs[field.TypeName]; found {
+					// skip basic fields
+					if arrayInfo.IsBasic {
+						field.IsStruct = false
+						field.IsArray = true
+						continue
+					}
+					if refInfo, arrayFound := pkg.StructDefs[arrayInfo.TypeName]; arrayFound {
+						field.IsStruct = false
+						field.IsArray = true
+						arrayInfo.Reference = refInfo
+						field.Reference = refInfo        // the real reference to the struct
+						field.ArrayReference = arrayInfo // set it in case it's needed
+						continue
+					}
+					log.Fatalf("Struct not found %q:%q -> data :\n %#v", field.Name, arrayInfo.TypeName, arrayInfo)
 
-				// look in arrays
-				arrayInfo, found := pkg.ArrayDefs[field.TypeName]
-				if found {
-					field.FromArray(arrayInfo)
-					continue
 				}
-
-				log.Fatalf("Not found %q isArray: %t -> array data :\n %#v", field.TypeName, field.IsArray, field)
+				log.Fatalf("Struct not found %q:%q -> data :\n %#v", field.Name, field.TypeName, field)
 			}
-
 		}
 	}
 	return nil
@@ -112,27 +109,48 @@ func (pkg *PackageInfo) ReadArrayInfo(spec ast.Spec, obj types.Object, comment *
 		info.Package = obj.Pkg().Name()
 		info.PackagePath = obj.Pkg().Path()
 	}
-	switch elType := astSpec.Type.(*ast.ArrayType).Elt.(type) {
+	if err := pkg.ReadArray(astSpec.Type.(*ast.ArrayType), &info); err != nil {
+		return err
+	}
+	if _, has := pkg.FieldsDefs[info.Name]; has {
+		return fmt.Errorf("error : array %q already defined", info.Name)
+	}
+	pkg.FieldsDefs[info.Name] = &info
+	return nil
+}
+
+func (pkg *PackageInfo) ReadIdent(ident *ast.Ident, info *FieldInfo) {
+	info.TypeName = ident.Name
+	if ident.Obj == nil {
+		info.IsBasic = true
+	} else {
+		info.IsStruct = true
+	}
+}
+
+func (pkg *PackageInfo) ReadPointer(ptr *ast.StarExpr, info *FieldInfo) error {
+	info.IsPointer = true
+	switch ptrType := ptr.X.(type) {
 	case *ast.Ident:
-		info.TypeName = elType.Name
-		if elType.Obj == nil {
-			info.IsBasic = true
-		}
+		pkg.ReadIdent(ptrType, info)
+	default:
+		return fmt.Errorf(ErrNotImplemented, ptr, info.Name)
+	}
+	return nil
+}
+
+func (pkg *PackageInfo) ReadArray(arr *ast.ArrayType, info *FieldInfo) error {
+	info.IsArray = true
+	switch elType := arr.Elt.(type) {
+	case *ast.Ident:
+		pkg.ReadIdent(elType, info)
 	case *ast.StarExpr:
-		info.IsPointer = true
-		switch ptrType := elType.X.(type) {
-		case *ast.Ident:
-			if ptrType.Obj == nil {
-				info.IsBasic = true
-			}
-			info.TypeName = ptrType.Name
-		default:
-			return fmt.Errorf(ErrNotImplemented, elType, info.Name)
+		if err := pkg.ReadPointer(elType, info); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf(ErrNotImplemented, elType, info.Name)
 	}
-	pkg.ArrayDefs[info.Name] = &info
 	return nil
 }
 
@@ -140,8 +158,9 @@ func (pkg *PackageInfo) ReadArrayInfo(spec ast.Spec, obj types.Object, comment *
 func (pkg *PackageInfo) ReadStructInfo(spec ast.Spec, obj types.Object, comment *ast.CommentGroup) error {
 	astSpec := spec.(*ast.TypeSpec)
 	info := TypeInfo{
-		Name:    astSpec.Name.Name,
-		Comment: comment,
+		Name:     astSpec.Name.Name,
+		TypeName: astSpec.Name.Name,
+		Comment:  comment,
 	}
 	if obj != nil {
 		info.Package = obj.Pkg().Name()
@@ -153,25 +172,11 @@ func (pkg *PackageInfo) ReadStructInfo(spec ast.Spec, obj types.Object, comment 
 			embeddedField := FieldInfo{IsEmbedded: true}
 			switch fieldType := field.Type.(type) {
 			case *ast.StarExpr:
-				embeddedField.IsPointer = true
-				switch ptrType := fieldType.X.(type) {
-				case *ast.Ident:
-					if ptrType.Obj == nil {
-						embeddedField.IsBasic = true
-					} else {
-						embeddedField.IsStruct = true
-					}
-					embeddedField.TypeName = ptrType.Name
-				default:
-					// not allowed
+				if err := pkg.ReadPointer(fieldType, &embeddedField); err != nil {
+					return err
 				}
 			case *ast.Ident:
-				if fieldType.Obj == nil {
-					embeddedField.IsBasic = true
-				} else {
-					embeddedField.IsStruct = true
-				}
-				embeddedField.TypeName = fieldType.Name
+				pkg.ReadIdent(fieldType, &embeddedField)
 			default:
 				// not allowed
 				return fmt.Errorf(ErrNotImplemented, fieldType, info.Name)
@@ -195,29 +200,23 @@ func (pkg *PackageInfo) ReadStructInfo(spec ast.Spec, obj types.Object, comment 
 		}
 		switch fieldType := field.Type.(type) {
 		case *ast.StarExpr:
-			newField.IsPointer = true
-			switch ptrType := fieldType.X.(type) {
-			case *ast.Ident:
-				newField.TypeName = ptrType.Name
-				if ptrType.Obj == nil {
-					newField.IsBasic = true
-				} else {
-					newField.IsStruct = true
-				}
-			default:
-				return fmt.Errorf(ErrNotImplemented, ptrType, info.Name)
+			if err := pkg.ReadPointer(fieldType, &newField); err != nil {
+				return err
 			}
 		case *ast.Ident:
-			newField.TypeName = fieldType.Name
-			if fieldType.Obj == nil {
-				newField.IsBasic = true
-			} else {
-				newField.IsStruct = true
-			}
+			pkg.ReadIdent(fieldType, &newField)
 		case *ast.MapType:
 			newField.IsMap = true
 		case *ast.ChanType:
 			newField.IsChan = true
+		case *ast.ArrayType:
+			if err := pkg.ReadArray(fieldType, &newField); err != nil {
+				return err
+			}
+			if _, has := pkg.FieldsDefs[newField.Name]; has {
+				return fmt.Errorf("error : array %q already defined", newField.Name)
+			}
+			pkg.FieldsDefs[newField.Name] = &newField
 		default:
 			return fmt.Errorf(ErrNotImplemented, fieldType, info.Name)
 		}

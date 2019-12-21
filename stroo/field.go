@@ -7,28 +7,33 @@ import (
 )
 
 type FieldInfo struct {
-	Name       string
-	TypeName   string
-	IsBasic    bool
-	IsPointer  bool
-	IsStruct   bool
-	IsSlice    bool
-	IsArray    bool
-	IsMap      bool
-	IsChan     bool
-	IsExported bool
-	IsEmbedded bool
-	Reference  *TypeInfo
-
-	Tags        *Tags
-	Comment     *ast.CommentGroup
-	Package     string
-	PackagePath string
-	MethodList  Methods
+	Name           string
+	TypeName       string
+	IsBasic        bool
+	IsPointer      bool
+	IsStruct       bool
+	IsArray        bool
+	IsMap          bool
+	IsChan         bool
+	IsExported     bool
+	IsEmbedded     bool
+	Reference      *TypeInfo  // if it's a struct, we have struct info here
+	ArrayReference *FieldInfo // if it's array, we have the field info here
+	Tags           *Tags
+	Comment        *ast.CommentGroup
+	Package        string
+	PackagePath    string
+	MethodList     Methods
+	ReferenceName  string // after nullified Reference or ArrayReference, we keep the name here to get from cache
 }
 
+var (
+	VisitedStructs = make(map[string]struct{})
+	VisitedFields  = make(map[string]string)
+)
+
 // cannot implement Stringer due to tests
-func (f FieldInfo) Debug(sb *strings.Builder, args ...int) {
+func (f *FieldInfo) Debug(sb *strings.Builder, args ...int) {
 	var tabs string
 	var tno int
 	if len(args) > 0 {
@@ -49,15 +54,6 @@ func (f FieldInfo) Debug(sb *strings.Builder, args ...int) {
 	if f.IsPointer {
 		sb.WriteString(tabs + "IsPointer:true,\n")
 	}
-	if f.IsStruct {
-		sb.WriteString(tabs + "IsStruct:true,\n")
-	}
-	if f.IsSlice {
-		sb.WriteString(tabs + "IsSlice:true,\n")
-	}
-	if f.IsArray {
-		sb.WriteString(tabs + "IsArray:true,\n")
-	}
 	if f.IsMap {
 		sb.WriteString(tabs + "IsMap:true,\n")
 	}
@@ -69,14 +65,6 @@ func (f FieldInfo) Debug(sb *strings.Builder, args ...int) {
 	}
 	if f.IsEmbedded {
 		sb.WriteString(tabs + "IsEmbedded:true,\n")
-	}
-	if f.Reference != nil {
-		sb.WriteString(tabs + "Reference:")
-		if tno > 0 {
-			f.Reference.Debug(sb, tno)
-		} else {
-			f.Reference.Debug(sb)
-		}
 	}
 	if f.Tags != nil {
 		if tno > 0 {
@@ -91,24 +79,65 @@ func (f FieldInfo) Debug(sb *strings.Builder, args ...int) {
 	if f.PackagePath != "" {
 		sb.WriteString(tabs + "PackagePath:\"" + f.PackagePath + "\",\n")
 	}
+
+	if f.IsStruct {
+		sb.WriteString(tabs + "IsStruct:true,\n")
+		if !f.IsBasic {
+			if f.Reference != nil {
+				f.ReferenceName = f.Reference.Name
+				if _, visited := VisitedStructs[f.ReferenceName]; !visited { // already visited (avoid self reference and infinite loop)
+					VisitedStructs[f.Reference.Name] = struct{}{} // first, mark as visited, so we won't enter here again because of fields
+					var cachedSb strings.Builder
+					tno++
+					if tno > 0 {
+						f.Reference.Debug(&cachedSb, tno)
+					} else {
+						f.Reference.Debug(&cachedSb)
+					}
+					VisitedFields[f.ReferenceName] = cachedSb.String() // store in cache, in case of revisit
+					f.Reference = nil
+				}
+			} else {
+				if VisitedFields[f.ReferenceName] != "" {
+					sb.WriteString(tabs + "Reference:" + VisitedFields[f.ReferenceName])
+				} else {
+					//panic("reference is nil for stuct field " + f.Name + " having reference named " + f.ReferenceName)
+				}
+			}
+		}
+	}
+	if f.IsArray {
+		sb.WriteString(tabs + "IsArray:true,\n")
+		if !f.IsBasic {
+			if f.Reference != nil {
+				f.ReferenceName = f.Reference.Name
+				if _, visited := VisitedStructs[f.ReferenceName]; !visited { // already visited (avoid self reference and infinite loop)
+					VisitedStructs[f.ReferenceName] = struct{}{} // first, mark as visited, so we won't enter here again because of fields
+					var cachedSb strings.Builder
+					tno++
+					if tno > 0 {
+						f.Reference.Debug(&cachedSb, tno)
+					} else {
+						f.Reference.Debug(&cachedSb)
+					}
+					VisitedFields[f.ReferenceName] = cachedSb.String() // store in cache, in case of revisit
+					f.Reference = nil
+				}
+				if VisitedFields[f.ReferenceName] != "" {
+					sb.WriteString(tabs + "Reference:" + VisitedFields[f.ReferenceName])
+				}
+			} else {
+				//panic("reference is nil for array field " + f.Name + " having reference named " + f.ReferenceName)
+			}
+		}
+	}
+
 	if tno > 0 {
 		f.MethodList.Debug(sb, tno)
 	} else {
 		f.MethodList.Debug(sb)
 	}
 	sb.WriteString(tabs + "},\n")
-}
-
-// overwrites field information with data from array info
-func (f *FieldInfo) FromArray(arrayReference *FieldInfo) {
-	f.IsBasic = arrayReference.IsBasic
-	f.IsStruct = false // force false, because it's array
-	f.IsArray = true
-	f.Reference = arrayReference.Reference
-	f.Reference.ReferenceIsPointer = arrayReference.IsPointer // signal `type T []*V`
-	f.Tags = arrayReference.Tags
-	f.Comment = arrayReference.Comment
-	f.MethodList = arrayReference.MethodList
 }
 
 func (f *FieldInfo) TagsByKey(name string) []string {
@@ -132,11 +161,9 @@ func (f Fields) Debug(sb *strings.Builder, args ...int) {
 	if len(args) > 0 {
 		tno = args[0]
 		tabs = strings.Repeat("\t", tno)
-		tno++
 	}
-	if len(f) > 0 {
-		sb.WriteString(tabs + "Fields:Fields{\n")
-	}
+	sb.WriteString(tabs + "Fields:Fields{\n")
+	tno++
 	for _, field := range f {
 		if tno > 0 {
 			field.Debug(sb, tno)
@@ -144,9 +171,7 @@ func (f Fields) Debug(sb *strings.Builder, args ...int) {
 			field.Debug(sb)
 		}
 	}
-	if len(f) > 0 {
-		sb.WriteString(tabs + "},\n")
-	}
+	sb.WriteString(tabs + "},\n")
 }
 
 // implementation of Sorter interface, so we can sort fields

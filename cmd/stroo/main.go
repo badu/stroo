@@ -44,7 +44,7 @@ func run(pass *codescan.Pass) (interface{}, error) {
 			(*ast.GenDecl)(nil),
 		}
 		err    error
-		result = &PackageInfo{Name: pass.Pkg.Name(), StructDefs: make(map[string]TypeInfo), ArrayDefs: make(map[string]FieldInfo)}
+		result = &PackageInfo{Name: pass.Pkg.Name(), StructDefs: make(map[string]*TypeInfo), FieldsDefs: make(map[string]*FieldInfo)}
 	)
 
 	inspector := pass.ResultOf[mAnalyzer].(*codescan.Inspector)
@@ -61,7 +61,7 @@ func run(pass *codescan.Pass) (interface{}, error) {
 			case token.TYPE:
 				for _, spec := range nodeType.Specs {
 					typeSpec := spec.(*ast.TypeSpec)
-					switch typeSpec.Type.(type) {
+					switch unknownType := typeSpec.Type.(type) {
 					case *ast.InterfaceType:
 						result.ReadInterfaceInfo(spec, defs[typeSpec.Name], nodeType.Doc)
 					case *ast.ArrayType:
@@ -72,8 +72,12 @@ func run(pass *codescan.Pass) (interface{}, error) {
 						if infoErr := result.ReadStructInfo(spec, defs[typeSpec.Name], nodeType.Doc); infoErr != nil {
 							err = infoErr
 						}
+					case *ast.Ident:
+						info := FieldInfo{Name: defs[typeSpec.Name].Name(), Comment: nodeType.Doc}
+						result.ReadIdent(unknownType, &info)
+						result.FieldsDefs[info.Name] = &info
 					default:
-						log.Printf("Have you modified the filter ? Unhandled : %#v\n", typeSpec)
+						log.Printf("Have you modified the filter ? Unhandled : %#v\n", unknownType)
 					}
 				}
 			case token.VAR, token.CONST:

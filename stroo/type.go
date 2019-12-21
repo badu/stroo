@@ -6,15 +6,13 @@ import (
 )
 
 type TypeInfo struct {
-	Comment            *ast.CommentGroup
-	Package            string
-	PackagePath        string
-	Name               string
-	TypeName           string
-	Fields             Fields
-	MethodList         Methods
-	Reference          *TypeInfo
-	ReferenceIsPointer bool
+	Comment     *ast.CommentGroup
+	Package     string
+	PackagePath string
+	Name        string
+	TypeName    string
+	Fields      Fields
+	MethodList  Methods
 }
 
 // cannot implement Stringer due to tests
@@ -24,7 +22,6 @@ func (s TypeInfo) Debug(sb *strings.Builder, args ...int) {
 	if len(args) > 0 {
 		tno = args[0]
 		tabs = strings.Repeat("\t", tno)
-		tno++
 	}
 	sb.WriteString(tabs + "&TypeInfo{\n")
 	sb.WriteString(tabs + "Name:\"" + s.Name + "\",\n")
@@ -34,15 +31,15 @@ func (s TypeInfo) Debug(sb *strings.Builder, args ...int) {
 	if s.PackagePath != "" {
 		sb.WriteString(tabs + "PackagePath:\"" + s.PackagePath + "\",\n")
 	}
-	if s.ReferenceIsPointer {
-		sb.WriteString(tabs + "ReferenceIsPointer:true,\n")
+	if len(s.Fields) > 0 {
+		tno++
+		if tno > 0 {
+			s.Fields.Debug(sb, tno)
+		} else {
+			s.Fields.Debug(sb)
+		}
 	}
-	if tno > 0 {
-		s.Fields.Debug(sb, tno)
-	} else {
-		s.Fields.Debug(sb)
-	}
-	sb.WriteString(tabs + "},\n")
+	sb.WriteString("},\n")
 }
 
 type TypesSlice []*TypeInfo
@@ -54,7 +51,9 @@ func (s TypesSlice) Debug(sb *strings.Builder, args ...int) {
 	if len(args) > 0 {
 		tno = args[0]
 		tabs = strings.Repeat("\t", tno)
-		tno++
+		if len(s) > 0 {
+			tno++
+		}
 	}
 	sb.WriteString(tabs + "TypesSlice:TypesSlice{\n")
 	for _, el := range s {

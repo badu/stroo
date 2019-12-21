@@ -94,7 +94,10 @@ func (a Actions) visitAll(printed map[*Action]struct{}) ([]interface{}, error) {
 	for _, act := range a {
 		if _, ok := printed[act]; !ok {
 			printed[act] = struct{}{}
-			act.dependencies.visitAll(printed)
+			_, err := act.dependencies.visitAll(printed)
+			if err != nil {
+				return nil, err
+			}
 			result, err := act.getResult()
 			if err != nil {
 				return nil, err
