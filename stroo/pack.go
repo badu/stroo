@@ -21,6 +21,18 @@ type PackageInfo struct {
 	StructDefs map[string]*TypeInfo
 	FieldsDefs map[string]*FieldInfo
 	RawAST     map[*ast.Ident]types.Object
+	PrintDebug bool
+}
+
+func (pkg *PackageInfo) GetStructByKey(key string) *TypeInfo {
+	structInfo, ok := pkg.StructDefs[key]
+	if ok {
+		return structInfo
+	}
+	if pkg.PrintDebug {
+		log.Printf("GetStructByKey - %q NOT found", key)
+	}
+	return nil
 }
 
 func (pkg *PackageInfo) PostProcess() error {
@@ -29,7 +41,9 @@ func (pkg *PackageInfo) PostProcess() error {
 	for _, fn := range pkg.Functions {
 		if fn.ReceiverType == "" {
 			// todo test
-			log.Fatalf("receiverType is empty : %#v", fn)
+			if pkg.PrintDebug {
+				log.Printf("receiverType is empty : %#v", fn)
+			}
 			continue
 		}
 
@@ -120,8 +134,8 @@ func (pkg *PackageInfo) ReadArrayInfo(spec ast.Spec, obj types.Object, comment *
 	if err := pkg.ReadArray(astSpec.Type.(*ast.ArrayType), &info); err != nil {
 		return err
 	}
-	if _, has := pkg.FieldsDefs[info.Name]; has {
-		return fmt.Errorf("error : array %q already defined", info.Name)
+	if value, has := pkg.FieldsDefs[info.Name]; has {
+		return fmt.Errorf("error : array %q already defined\n%#v", info.Name, value)
 	}
 	pkg.FieldsDefs[info.Name] = &info
 	return nil
@@ -134,6 +148,9 @@ func (pkg *PackageInfo) ReadIdent(ident *ast.Ident, info *FieldInfo) {
 	} else {
 		info.IsStruct = true
 	}
+	if pkg.PrintDebug {
+		log.Printf("ReadIdent : typename = %q basic = %t struct = %t", info.TypeName, info.IsBasic, info.IsStruct)
+	}
 }
 
 func (pkg *PackageInfo) ReadPointer(ptr *ast.StarExpr, info *FieldInfo) error {
@@ -141,11 +158,17 @@ func (pkg *PackageInfo) ReadPointer(ptr *ast.StarExpr, info *FieldInfo) error {
 	switch ptrType := ptr.X.(type) {
 	case *ast.Ident:
 		pkg.ReadIdent(ptrType, info)
+		if pkg.PrintDebug {
+			log.Printf("ReadPointer : pointer = %t", info.IsPointer)
+		}
 	case *ast.SelectorExpr:
 		// fields from other packages
 		if ident, ok := ptrType.X.(*ast.Ident); ok {
 			info.Package = ident.Name
 			info.TypeName = ptrType.Sel.Name
+		}
+		if pkg.PrintDebug {
+			log.Printf("ReadPointer : %q.%q pointer = %t", info.Package, info.TypeName, info.IsPointer)
 		}
 	default:
 		return fmt.Errorf(ErrNotImplemented, ptr, info.Name)
@@ -164,6 +187,9 @@ func (pkg *PackageInfo) ReadArray(arr *ast.ArrayType, info *FieldInfo) error {
 		}
 	default:
 		return fmt.Errorf(ErrNotImplemented, elType, info.Name)
+	}
+	if pkg.PrintDebug {
+		log.Printf("ReadArray : array = %t", info.IsArray)
 	}
 	return nil
 }
@@ -227,8 +253,8 @@ func (pkg *PackageInfo) ReadStructInfo(spec ast.Spec, obj types.Object, comment 
 			if err := pkg.ReadArray(fieldType, &newField); err != nil {
 				return err
 			}
-			if _, has := pkg.FieldsDefs[newField.Name]; has {
-				return fmt.Errorf("error : array %q already defined", newField.Name)
+			if value, has := pkg.FieldsDefs[newField.Name]; has {
+				return fmt.Errorf("error : array %q on %q already defined:\n%#v\nnew:\n%#vDo you have definitions like Strings []string?", newField.Name, info.Name, value, newField)
 			}
 			pkg.FieldsDefs[newField.Name] = &newField
 		case *ast.SelectorExpr:
@@ -236,6 +262,11 @@ func (pkg *PackageInfo) ReadStructInfo(spec ast.Spec, obj types.Object, comment 
 			if ident, ok := fieldType.X.(*ast.Ident); ok {
 				newField.Package = ident.Name
 				newField.TypeName = fieldType.Sel.Name
+				if pkg.PrintDebug {
+					log.Printf("SelectorExpr : %q.%q", newField.Package, newField.TypeName)
+				}
+			} else {
+				return fmt.Errorf(ErrNotImplemented, fieldType, info.Name)
 			}
 		default:
 			return fmt.Errorf(ErrNotImplemented, fieldType, info.Name)

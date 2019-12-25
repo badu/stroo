@@ -20,6 +20,7 @@ type Analyzer struct {
 	Flags            flag.FlagSet
 	Runnner          func(*Pass) (interface{}, error)
 	RunDespiteErrors bool
+	PrintDebug       bool
 }
 
 func (a *Analyzer) String() string { return a.Name }

@@ -23,6 +23,7 @@ import (
 
 	. "github.com/badu/stroo/stroo"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/swag"
 )
 
@@ -44,9 +45,8 @@ func run(pass *codescan.Pass) (interface{}, error) {
 			(*ast.GenDecl)(nil),
 		}
 		err    error
-		result = &PackageInfo{Name: pass.Pkg.Name(), StructDefs: make(map[string]*TypeInfo), FieldsDefs: make(map[string]*FieldInfo)}
+		result = &PackageInfo{Name: pass.Pkg.Name(), StructDefs: make(map[string]*TypeInfo), FieldsDefs: make(map[string]*FieldInfo), PrintDebug: mAnalyzer.PrintDebug}
 	)
-
 	inspector := pass.ResultOf[mAnalyzer].(*codescan.Inspector)
 	defs := pass.TypesInfo.Defs
 	inspector.Do(nodeFilter, func(node ast.Node) {
@@ -63,16 +63,20 @@ func run(pass *codescan.Pass) (interface{}, error) {
 					typeSpec := spec.(*ast.TypeSpec)
 					switch unknownType := typeSpec.Type.(type) {
 					case *ast.InterfaceType:
+						// e.g. `type Itf interface{}`
 						result.ReadInterfaceInfo(spec, defs[typeSpec.Name], nodeType.Doc)
 					case *ast.ArrayType:
+						// e.g. `type Array []string`
 						if infoErr := result.ReadArrayInfo(spec, defs[typeSpec.Name], nodeType.Doc); infoErr != nil {
 							err = infoErr
 						}
+						// e.g. `type Stru struct {}`
 					case *ast.StructType:
 						if infoErr := result.ReadStructInfo(spec, defs[typeSpec.Name], nodeType.Doc); infoErr != nil {
 							err = infoErr
 						}
 					case *ast.Ident:
+						// e.g. : `type String string`
 						info := FieldInfo{Name: defs[typeSpec.Name].Name(), Comment: nodeType.Doc}
 						result.ReadIdent(unknownType, &info)
 						result.FieldsDefs[info.Name] = &info
@@ -159,11 +163,19 @@ func templateGoStr(input string) string {
 	return "`" + input + "`"
 }
 
+func isNil(value interface{}) bool {
+	if value == nil {
+		return true
+	}
+	return false
+}
+
 type Doc struct {
 	Imports          []string
 	GeneratedMethods []string
 	PackageInfo      *PackageInfo
 	CurrentType      *TypeInfo
+	Main             TypeWithRoot
 	SelectedType     string                 // from flags
 	OutputFile       string                 // from flags
 	TemplateFile     string                 // from flags
@@ -172,11 +184,18 @@ type Doc struct {
 	keeper           map[string]interface{} // template keeps data in here, key-value, as they need
 }
 
+type TypeWithRoot struct {
+	T *TypeInfo
+	D *Doc
+}
+
 func (d *Doc) SetSelectedTypeNotNil() bool {
 	if d.CurrentType == nil {
-		return true
+		log.Println("Selected type is nil")
+		return false
 	}
-	return false
+	log.Println("SetSelectedTypeNotNil " + d.CurrentType.TypeName)
+	return true
 }
 
 func (d *Doc) SetSelectedTypeInfo(newType *TypeInfo) *TypeInfo {
@@ -190,17 +209,20 @@ func (d *Doc) SetSelectedTypeInfo(newType *TypeInfo) *TypeInfo {
 	if !found {
 		log.Printf("%q not found while setting selected type", newType.TypeName)
 	}
+	log.Println("Select type " + d.CurrentType.TypeName)
 	return d.CurrentType
 }
 
-func (d *Doc) SetSelectedType(newType string) *TypeInfo {
+func (d *Doc) SetSelectedType(newType string) string {
 	d.SelectedType = newType
 	found := false
 	d.CurrentType, found = d.PackageInfo.StructDefs[newType]
 	if !found {
 		log.Printf("%q not found while setting selected type", newType)
+		return ""
 	}
-	return d.CurrentType
+	log.Println("SetSelectedType " + d.CurrentType.TypeName)
+	return ""
 }
 
 func (d *Doc) GetStructByKey(key string) *TypeInfo {
@@ -221,6 +243,10 @@ func (d *Doc) Store(key string, value interface{}) bool {
 func (d *Doc) Retrieve(key string) interface{} {
 	value, _ := d.keeper[key]
 	return value
+}
+
+func (d *Doc) Keeper() map[string]interface{} {
+	return d.keeper
 }
 
 func (d *Doc) AddToImports(imp string) string {
@@ -273,22 +299,6 @@ func main() {
 		err          error
 	)
 	templatePath, err = filepath.Abs(*templateFile)
-	tmpl, err = loadTemplate(templatePath, template.FuncMap{
-		"in":            contains,
-		"empty":         empty,
-		"lowerInitial":  lowerInitial,
-		"capitalize":    capitalize,
-		"templateGoStr": templateGoStr,
-		"trim":          strings.TrimSpace,
-		"toJsonName":    swag.ToJSONName, // TODO : import all, but make it field functionality
-		"sort":          SortFields,      // TODO : test sort fields (fields implements the interface)
-		"add": func(a, b int) int {
-			return a + b
-		},
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	log.Printf("Processing type : %q - test mode : %t\n", *typeName, *testMode)
 
@@ -313,6 +323,7 @@ func main() {
 	if !*testMode && *outputFile == "" {
 		log.Fatal("Error : you have to specify the Go file which will be produced")
 	}
+	mAnalyzer.PrintDebug = *testMode
 
 	initial, err := codescan.Load(args)
 	if err != nil {
@@ -348,6 +359,50 @@ func main() {
 			TestMode:     *testMode,
 			keeper:       make(map[string]interface{}),
 		}
+		doc.Main = TypeWithRoot{D: &doc, T: packageInfo.GetStructByKey(*typeName)}
+
+		tmpl, err = loadTemplate(templatePath, template.FuncMap{
+			"in":            contains,
+			"empty":         empty,
+			"nil":           isNil,
+			"lowerInitial":  lowerInitial,
+			"capitalize":    capitalize,
+			"templateGoStr": templateGoStr,
+			"trim":          strings.TrimSpace,
+			"hasPrefix":     strings.HasPrefix,
+			"toJsonName":    swag.ToJSONName, // TODO : import all, but make it field functionality
+			"sort":          SortFields,      // TODO : test sort fields (fields implements the interface)
+			"dump": func(a ...interface{}) string {
+				return spew.Sdump(a...)
+			},
+			"include": func(name string, data *TypeInfo) string {
+				var buf strings.Builder
+				err := tmpl.ExecuteTemplate(&buf, name, TypeWithRoot{D: &doc, T: data})
+				if err != nil {
+					log.Printf("Include Error : %v", err)
+				}
+				return buf.String()
+			},
+			"includeAndStore": func(name string, data *TypeInfo, storeName string) bool {
+				var buf strings.Builder
+				err := tmpl.ExecuteTemplate(&buf, name, TypeWithRoot{D: &doc, T: data})
+				if err != nil {
+					log.Printf("Include Error : %v", err)
+					return false
+				}
+				result := buf.String()
+				doc.keeper[storeName] = result
+				log.Printf("%q stored.", storeName)
+				return true
+			},
+			"concat": func(a, b string) string {
+				return a + b
+			},
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+
 		buf := bytes.Buffer{}
 		if err := tmpl.Execute(&buf, &doc); err != nil {
 			log.Fatalf("failed to parse template %s: %s\nPartial result:\n%s", *templateFile, err, buf.String())

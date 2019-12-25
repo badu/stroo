@@ -5,9 +5,11 @@ import (
 	"strings"
 )
 
+type Strings []string
+
 type InterfaceInfo struct {
 	Name        string
-	Methods     []string
+	Methods     Strings
 	Package     string
 	PackagePath string
 	Comment     *ast.CommentGroup

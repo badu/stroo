@@ -36,12 +36,12 @@ type UserData struct {
 //go:generate stroo -type=ShopCart -output=easy_json_gen.go -template=./../../templates/json_marshal.tmpl
 type ShopCart struct {
 	// embedded field
-	UserData
+	UserData `json:"usr"`
 	// unexported field
 	unexported string
 	// basic fields
-	Bool       bool
-	BoolPtr    *bool
+	Bool       bool  `json:"boolean_value"`
+	BoolPtr    *bool `json:"fakeBoolPtr"`
 	Int        int
 	IntPtr     *int
 	Int8       int8
@@ -69,15 +69,20 @@ type ShopCart struct {
 	String     string
 	StringPtr  *string
 	// field from another package
-	StructFromAnotherPackage model_b.StructFromAnotherPackage
+	StructFromAnotherPackage model_b.StructFromAnotherPackage `json:"structFromAnotherPackage"`
 	// time field
-	PurchaseDate time.Time
+	PurchaseDate time.Time `json:"purchaseDate"`
 	// pointer to time
-	DeliveryDate *time.Time
+	DeliveryDate *time.Time `json:"emptyTime"`
 	// normal slice
 	Items CartItems
 	// pointer to slice
-	Taxes *Taxes
+	Taxes *Taxes `json:"appliedTaxes"`
 	// slice of fields from another package
-	Times Times
+	Times Times `json:"arrayOfPtrToTimeDotTime"`
+	Pot   Pot
+}
+
+type Pot struct {
+	Name string `json:"potName"`
 }
