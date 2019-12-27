@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"strings"
 	"testing"
 
@@ -23,13 +24,13 @@ func TestArrayDefinition(t *testing.T) {
 			name:       "p",
 			input:      `package p; type T0 []int;`,
 			outputName: "T0",
-			output:     &FieldInfo{Name: "T0", TypeName: "int", IsBasic: true, IsArray: true},
+			output:     &TypeInfo{Name: "T0", Kind: "int", IsArray: true},
 		}, // 0
 		{
 			name:       "p",
 			input:      `package p; type T1 []*int;`,
 			outputName: "T1",
-			output:     &FieldInfo{Name: "T1", TypeName: "int", IsBasic: true, IsPointer: true, IsArray: true},
+			output:     &TypeInfo{Name: "T1", Kind: "int", IsPointer: true, IsArray: true},
 		}, // 1
 		{
 			name:       "",
@@ -93,16 +94,16 @@ func TestArrayDefinition(t *testing.T) {
 			name:       "",
 			input:      `package p; type S struct{ Name string }; type T12 []S;`,
 			outputName: "T12",
-			output: &FieldInfo{
-				Name:     "T12",
-				TypeName: "S",
-				IsArray:  true,
+			output: &TypeInfo{
+				Name:    "T12",
+				Kind:    "S",
+				IsArray: true,
 				Reference: &TypeInfo{
 					Name: "S",
 					Fields: Fields{
 						&FieldInfo{
 							Name:       "Name",
-							TypeName:   "string",
+							Kind:       "string",
 							IsBasic:    true,
 							IsExported: true,
 						},
@@ -114,9 +115,9 @@ func TestArrayDefinition(t *testing.T) {
 			name:       "",
 			input:      `package p; type S struct{ Name string }; type T13 []*S;`,
 			outputName: "T13",
-			output: &FieldInfo{
+			output: &TypeInfo{
 				Name:      "T13",
-				TypeName:  "S",
+				Kind:      "S",
 				IsPointer: true,
 				IsArray:   true,
 				Reference: &TypeInfo{
@@ -124,7 +125,7 @@ func TestArrayDefinition(t *testing.T) {
 					Fields: Fields{
 						&FieldInfo{
 							Name:       "Name",
-							TypeName:   "string",
+							Kind:       "string",
 							IsBasic:    true,
 							IsExported: true,
 						},
@@ -135,7 +136,7 @@ func TestArrayDefinition(t *testing.T) {
 	}
 
 	for idx, cCase := range cases {
-		result := PackageInfo{Name: "test", StructDefs: make(map[string]*TypeInfo), FieldsDefs: make(map[string]*FieldInfo)}
+		result := PackageInfo{Name: "test", StructDefs: make(map[string]*TypeInfo)}
 		VisitedStructs = make(map[string]struct{}) // reset
 		VisitedFields = make(map[string]string)    // reset
 		fileSet := token.NewFileSet()
@@ -143,6 +144,19 @@ func TestArrayDefinition(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%d. Fatal error : %v", idx, err)
 		}
+
+		info := types.Info{
+			Types: make(map[ast.Expr]types.TypeAndValue),
+			Defs:  make(map[*ast.Ident]types.Object),
+			Uses:  make(map[*ast.Ident]types.Object),
+		}
+		var conf types.Config
+		_, err = conf.Check("p", fileSet, []*ast.File{astNodes}, &info)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result.TypesInfo = &info
+
 		var infoErr error
 		for _, node := range astNodes.Decls {
 			switch nodeType := node.(type) {
@@ -151,14 +165,14 @@ func TestArrayDefinition(t *testing.T) {
 					astSpec := spec.(*ast.TypeSpec)
 					switch astSpec.Type.(type) {
 					case *ast.ArrayType:
-						infoErr = result.ReadArrayInfo(spec, nil, nodeType.Doc)
+						infoErr = result.ReadArrayInfo(astSpec, nodeType.Doc)
 						if infoErr != nil && cCase.output != nil {
 							if infoErr.Error() != cCase.output {
 								t.Errorf("%d.errors not equal:\nexpected output:\n`%v`\nreceived:\n`%v`", idx, cCase.output, infoErr)
 							}
 						}
 					case *ast.StructType:
-						infoErr = result.ReadStructInfo(spec, nil, nodeType.Doc)
+						infoErr = result.ReadStructInfo(astSpec, nodeType.Doc)
 						if infoErr != nil && cCase.output != nil {
 							if infoErr.Error() != cCase.output {
 								t.Errorf("%d.errors not equal:\nexpected output:\n`%v`\nreceived:\n`%v`", idx, cCase.output, infoErr)
@@ -176,21 +190,18 @@ func TestArrayDefinition(t *testing.T) {
 			if cCase.outputName == "" {
 				t.Skipf("%d. output is no-name", idx)
 			}
-			def := result.FieldsDefs[cCase.outputName]
-			if !def.IsBasic {
-				structInfo, found := result.StructDefs[def.TypeName]
-				if !found {
-					t.Fatalf("Not found %q array data :\n %#v", def.TypeName, def)
-				}
-				def.Reference = structInfo
-			}
-			def.IsStruct = false
-			typed, ok := cCase.output.(*FieldInfo)
-			if !ok {
-				t.Fatalf("error : expecting output to be *FieldInfo and it's not")
-			}
+			def := result.StructDefs[cCase.outputName]
+
 			var expected, received strings.Builder
-			typed.Debug(&expected, 0)
+			if typed, ok := cCase.output.(*TypeInfo); ok {
+				typed.Debug(&expected, 0)
+			} else {
+				e, ok := cCase.output.(string)
+				if !ok {
+					t.Fatalf("cCase.output should be string or *TypeInfo! it's : %T", cCase.output)
+				}
+				expected.WriteString(e)
+			}
 			def.Debug(&received, 0)
 			// because circular references, we cannot use reflect.DeepEqual
 			if received.String() != expected.String() {
@@ -226,7 +237,7 @@ func TestStructDefinition(t *testing.T) {
 				Name: "T1",
 				Fields: Fields{
 					&FieldInfo{
-						TypeName:   "S",
+						Kind:       "S",
 						IsEmbedded: true,
 						IsStruct:   true,
 						Reference: &TypeInfo{
@@ -234,7 +245,7 @@ func TestStructDefinition(t *testing.T) {
 							Fields: Fields{
 								&FieldInfo{
 									Name:       "Name",
-									TypeName:   "string",
+									Kind:       "string",
 									IsBasic:    true,
 									IsExported: true,
 									Tags: &Tags{
@@ -245,7 +256,7 @@ func TestStructDefinition(t *testing.T) {
 						},
 					},
 					&FieldInfo{
-						TypeName:   "S2",
+						Kind:       "S2",
 						IsPointer:  true,
 						IsEmbedded: true,
 						IsStruct:   true,
@@ -254,7 +265,7 @@ func TestStructDefinition(t *testing.T) {
 							Fields: Fields{
 								&FieldInfo{
 									Name:       "Name",
-									TypeName:   "string",
+									Kind:       "string",
 									IsBasic:    true,
 									IsExported: true,
 									Tags: &Tags{
@@ -265,13 +276,13 @@ func TestStructDefinition(t *testing.T) {
 						},
 					},
 					&FieldInfo{
-						TypeName:   "error",
+						Kind:       "error",
 						IsBasic:    true,
 						IsEmbedded: true,
 					},
 					&FieldInfo{
 						Name:       "Name",
-						TypeName:   "string",
+						Kind:       "string",
 						IsBasic:    true,
 						IsExported: true,
 						Tags: &Tags{
@@ -280,15 +291,15 @@ func TestStructDefinition(t *testing.T) {
 					},
 					&FieldInfo{
 						Name:       "PtrName",
-						TypeName:   "string",
+						Kind:       "string",
 						IsBasic:    true,
 						IsPointer:  true,
 						IsExported: true,
 					},
 					&FieldInfo{
-						Name:     "unexported",
-						TypeName: "string",
-						IsBasic:  true,
+						Name:    "unexported",
+						Kind:    "string",
+						IsBasic: true,
 					},
 				},
 			},
@@ -318,13 +329,13 @@ func TestStructDefinition(t *testing.T) {
 				Fields: Fields{
 					&FieldInfo{
 						Name:       "S",
-						TypeName:   "S",
+						Kind:       "S",
 						IsExported: true,
 						IsStruct:   true,
 					},
 					&FieldInfo{
 						Name:       "Itemz",
-						TypeName:   "Items",
+						Kind:       "Items",
 						IsExported: true,
 						Tags: &Tags{
 							&Tag{Key: "json", Name: "itmz"},
@@ -335,7 +346,7 @@ func TestStructDefinition(t *testing.T) {
 							Fields: Fields{
 								&FieldInfo{
 									Name:       "Name",
-									TypeName:   "string",
+									Kind:       "string",
 									IsBasic:    true,
 									IsExported: true,
 									Tags: &Tags{
@@ -347,7 +358,7 @@ func TestStructDefinition(t *testing.T) {
 					},
 					&FieldInfo{
 						Name:       "Pricez",
-						TypeName:   "Prices",
+						Kind:       "Prices",
 						IsExported: true,
 						Tags: &Tags{
 							&Tag{Key: "json", Name: "prcz"},
@@ -358,7 +369,7 @@ func TestStructDefinition(t *testing.T) {
 							Fields: Fields{
 								&FieldInfo{
 									Name:       "Name",
-									TypeName:   "string",
+									Kind:       "string",
 									IsBasic:    true,
 									IsExported: true,
 									Tags: &Tags{
@@ -386,7 +397,7 @@ func TestStructDefinition(t *testing.T) {
 				Name: "T3",
 				Fields: Fields{
 					&FieldInfo{
-						TypeName:   "Items",
+						Kind:       "Items",
 						IsArray:    true,
 						IsEmbedded: true,
 						Reference: &TypeInfo{
@@ -395,7 +406,7 @@ func TestStructDefinition(t *testing.T) {
 							Fields: Fields{
 								&FieldInfo{
 									Name:       "Name",
-									TypeName:   "string",
+									Kind:       "string",
 									IsBasic:    true,
 									IsExported: true,
 								},
@@ -418,7 +429,7 @@ func TestStructDefinition(t *testing.T) {
 				Fields: Fields{
 					&FieldInfo{
 						Name:       "Child",
-						TypeName:   "TR",
+						Kind:       "TR",
 						IsExported: true,
 						Tags: &Tags{
 							&Tag{Key: "json", Name: "child"},
@@ -427,7 +438,7 @@ func TestStructDefinition(t *testing.T) {
 					},
 					&FieldInfo{
 						Name:       "PtrChild",
-						TypeName:   "TR",
+						Kind:       "TR",
 						IsPointer:  true,
 						IsExported: true,
 						Tags: &Tags{
@@ -453,7 +464,7 @@ func TestStructDefinition(t *testing.T) {
 				Fields: Fields{
 					&FieldInfo{
 						Name:       "S",
-						TypeName:   "S",
+						Kind:       "S",
 						IsStruct:   true,
 						IsExported: true,
 						Tags: &Tags{
@@ -463,8 +474,8 @@ func TestStructDefinition(t *testing.T) {
 
 							Fields: Fields{
 								&FieldInfo{
-									Name:     "T",
-									TypeName: "T4",
+									Name: "T",
+									Kind: "T4",
 								},
 							},
 						},
@@ -487,7 +498,7 @@ func TestStructDefinition(t *testing.T) {
 				Fields: Fields{
 					&FieldInfo{
 						Name:       "Children",
-						TypeName:   "Children",
+						Kind:       "Children",
 						IsExported: true,
 						Tags: &Tags{
 							&Tag{Key: "json", Name: "children"},
@@ -498,7 +509,7 @@ func TestStructDefinition(t *testing.T) {
 							Fields: Fields{
 								&FieldInfo{
 									Name:       "Children",
-									TypeName:   "Children",
+									Kind:       "Children",
 									IsExported: true,
 									Tags: &Tags{
 										&Tag{Key: "json", Name: "children"},
@@ -507,7 +518,7 @@ func TestStructDefinition(t *testing.T) {
 								},
 								&FieldInfo{
 									Name:       "StarChildren",
-									TypeName:   "StarChildren",
+									Kind:       "StarChildren",
 									IsExported: true,
 									Tags: &Tags{
 										&Tag{Key: "json", Name: "star_children"},
@@ -519,7 +530,7 @@ func TestStructDefinition(t *testing.T) {
 					},
 					&FieldInfo{
 						Name:       "StarChildren",
-						TypeName:   "StarChildren",
+						Kind:       "StarChildren",
 						IsExported: true,
 						Tags: &Tags{
 							&Tag{Key: "json", Name: "star_children"},
@@ -530,7 +541,7 @@ func TestStructDefinition(t *testing.T) {
 							Fields: Fields{
 								&FieldInfo{
 									Name:       "Children",
-									TypeName:   "Children",
+									Kind:       "Children",
 									IsExported: true,
 									Tags: &Tags{
 										&Tag{Key: "json", Name: "children"},
@@ -539,7 +550,7 @@ func TestStructDefinition(t *testing.T) {
 								},
 								&FieldInfo{
 									Name:       "StarChildren",
-									TypeName:   "StarChildren",
+									Kind:       "StarChildren",
 									IsExported: true,
 									Tags: &Tags{
 										&Tag{Key: "json", Name: "star_children"},
@@ -555,7 +566,7 @@ func TestStructDefinition(t *testing.T) {
 	}
 
 	for idx, cCase := range cases {
-		result := PackageInfo{Name: "test", StructDefs: make(map[string]*TypeInfo), FieldsDefs: make(map[string]*FieldInfo)}
+		result := PackageInfo{Name: "test", StructDefs: make(map[string]*TypeInfo)}
 		VisitedStructs = make(map[string]struct{}) // reset
 		VisitedFields = make(map[string]string)    // reset
 		fileSet := token.NewFileSet()
@@ -563,6 +574,19 @@ func TestStructDefinition(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%d. Fatal (parse) error : %v", idx, err)
 		}
+
+		info := types.Info{
+			Types: make(map[ast.Expr]types.TypeAndValue),
+			Defs:  make(map[*ast.Ident]types.Object),
+			Uses:  make(map[*ast.Ident]types.Object),
+		}
+		var conf types.Config
+		_, err = conf.Check("p", fileSet, []*ast.File{astNodes}, &info)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result.TypesInfo = &info
+
 		var infoErr error
 		for _, node := range astNodes.Decls {
 			switch nodeType := node.(type) {
@@ -571,12 +595,12 @@ func TestStructDefinition(t *testing.T) {
 					astSpec := spec.(*ast.TypeSpec)
 					switch astSpec.Type.(type) {
 					case *ast.ArrayType:
-						infoErr = result.ReadArrayInfo(spec, nil, nodeType.Doc)
+						infoErr = result.ReadArrayInfo(spec.(*ast.TypeSpec), nodeType.Doc)
 						if infoErr != nil {
 							t.Fatalf("%d.error reading array : %v", idx, infoErr)
 						}
 					case *ast.StructType:
-						infoErr = result.ReadStructInfo(spec, nil, nodeType.Doc)
+						infoErr = result.ReadStructInfo(spec.(*ast.TypeSpec), nodeType.Doc)
 						if infoErr != nil && cCase.output != nil {
 							if infoErr.Error() != cCase.output {
 								t.Errorf("%d.errors not equal:\nexpected output:\n`%v`\nreceived:\n`%v`", idx, cCase.output, infoErr)

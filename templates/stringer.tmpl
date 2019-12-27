@@ -1,0 +1,96 @@
+{{ .AddToImports "bytes" }}
+{{ .AddToImports "strconv" }}
+{{ .AddToImports "fmt" }}
+{{ .AddToImports "strings" }}
+package {{.PackageInfo.Name}}
+{{ if .Imports }}
+import (
+	{{- range .Imports }}
+		"{{ . }}"
+	{{- end }}
+)
+{{ end }}
+{{ define "Stringer" }}
+{{- with .T -}}
+func (st {{ .Kind }}) String() string {
+	var sb strings.Builder
+	{{ if .IsArray -}} for _, el := range st { sb.WriteString(fmt.Sprintf("%#v", el)) }{{- end }}
+
+	{{ $package := .Package }}
+	{{ if sort .Fields -}}{{- end}}
+	{{- range .Fields}}
+		{{- if .IsExported }}
+			{{ $imported := .IsImported }}
+			{{ $fieldName := .Name }}
+			{{- if .IsArray }}
+				// array `{{ $fieldName }}` of type `{{ .Kind }}`
+				{{- if .IsPointer }}
+					if st.{{$fieldName}} != nil {
+				{{ end -}}
+				{{- with .Reference }}
+					{{ $name := concat "Stringer" .Name }}
+					{{- if $imported }}
+						{{ $.D.AddToImports .PackagePath }} // external package {{.Package}}.{{$fieldName}} -> {{.PackagePath}}
+					{{ else }}
+						{{- if not ($.D.HasInStore $name) }}
+							{{- if includeAndStoreArray "Stringer" . $name -}}{{end}}
+							sb.WriteString(fmt.Sprintf("%v", st.{{$fieldName}}))
+						{{ end -}}
+					{{ end -}}
+				{{ end -}}
+				{{- if .IsPointer }}
+					}
+				{{ end -}}
+			{{- else if .IsStruct }}
+				{{- if .IsPointer }}
+					if st.{{$fieldName}} != nil {
+				{{ end -}}
+
+				{{- if .IsBasic }}
+					// basic `{{ $fieldName }}` of type `{{ .Kind }}`
+				{{ else if .IsEmbedded }}
+					// embed of {{ if .IsPointer }} `*{{ .Kind }}` {{ else }}  `{{ .Kind }}` {{ end }}
+				{{ else }}
+					// struct of {{ if .IsPointer }} `*{{ .Kind }}` {{ else }}  `{{ .Kind }}` {{ end }}
+					{{- with .Reference }}
+						{{ $name := concat "Stringer" .Name }}
+						{{- if $imported }}
+							{{ $.D.AddToImports .PackagePath }} // external package {{.Package}}.{{.Name}} -> {{.PackagePath}}
+						{{ else }}
+							{{- if not ($.D.HasInStore $name) }}
+								{{- if includeAndStore "Stringer" . $name -}}{{end}}
+								sb.WriteString(fmt.Sprintf("%v", st.{{$fieldName}}))
+							{{ end -}}
+						{{ end -}}
+					{{ else }}
+						// no ref struct of {{ if .IsPointer }} `*{{ .Kind }}` {{ else }}  `{{ .Kind }}` {{ end }}
+						sb.WriteString(fmt.Sprintf("%v", st.{{$fieldName}}))
+					{{ end -}}
+				{{ end -}}
+				{{- if .IsPointer }}
+					}
+				{{ end -}}
+			{{- else if .IsBasic }}
+				{{ if .IsPointer -}}
+					if st.{{$fieldName}} != nil{
+				{{- end}}
+				{{ if .IsBool -}}sb.WriteString("{{$fieldName}}="+strconv.FormatBool(st.{{$fieldName}})+"\n"){{- end}}
+				{{ if .IsFloat -}}sb.WriteString("{{$fieldName}}="+fmt.Sprintf("%f", st.{{$fieldName}})+"\n"){{- end}}
+				{{ if .IsString -}}sb.WriteString("{{$fieldName}}="+st.{{$fieldName}}+"\n"){{- end}}
+				{{ if .IsUint -}}sb.WriteString("{{$fieldName}}="+strconv.FormatUint(st.{{$fieldName}}, 10)+"\n"){{- end}}
+				{{ if .IsInt -}}sb.WriteString("{{$fieldName}}="+strconv.Itoa(st.{{$fieldName}})+"\n"){{- end}}
+				{{ if .IsPointer -}}
+					}
+				{{- end}}
+			{{ end -}}
+        {{ end -}}
+    {{ end }}
+    return sb.String()
+}
+{{- end -}}
+{{ end -}}
+{{- if .Store (concat "Stringer" .Main.T.Name) "" }} {{- end }}
+{{- template "Stringer" .Main -}}
+{{ range $key, $value := .Keeper }}
+	{{ if hasPrefix $key "Stringer" }}{{$value}}{{ else }} $key {{end}}
+{{ end }}

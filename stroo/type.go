@@ -6,13 +6,16 @@ import (
 )
 
 type TypeInfo struct {
-	Comment     *ast.CommentGroup
 	Package     string
 	PackagePath string
 	Name        string
-	TypeName    string
+	Kind        string
+	IsArray     bool      // if it's not array, it's struct
+	IsPointer   bool      // if array, it's pointer
+	Reference   *TypeInfo // reference to array's struct
 	Fields      Fields
 	MethodList  Methods
+	Comment     *ast.CommentGroup
 }
 
 // cannot implement Stringer due to tests

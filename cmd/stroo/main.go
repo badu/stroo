@@ -45,17 +45,23 @@ func run(pass *codescan.Pass) (interface{}, error) {
 			(*ast.GenDecl)(nil),
 		}
 		err    error
-		result = &PackageInfo{Name: pass.Pkg.Name(), StructDefs: make(map[string]*TypeInfo), FieldsDefs: make(map[string]*FieldInfo), PrintDebug: mAnalyzer.PrintDebug}
+		result = &PackageInfo{Name: pass.Pkg.Name(), StructDefs: make(map[string]*TypeInfo), PrintDebug: mAnalyzer.PrintDebug}
 	)
-	inspector := pass.ResultOf[mAnalyzer].(*codescan.Inspector)
-	defs := pass.TypesInfo.Defs
+	inspector, ok := pass.ResultOf[mAnalyzer].(*codescan.Inspector)
+	if !ok {
+		log.Fatalf("Inspector is not (*codescan.Inspector)")
+	}
+	result.TypesInfo = pass.TypesInfo // exposed just in case someone wants to get wild
+	//	var sb strings.Builder
+	//	pass.Debug(&sb)
+	//	log.Println(sb.String())
 	inspector.Do(nodeFilter, func(node ast.Node) {
 		if err != nil {
 			return // we have error for a previous step
 		}
 		switch nodeType := node.(type) {
 		case *ast.FuncDecl:
-			result.ReadFunctionInfo(nodeType, defs[nodeType.Name])
+			result.ReadFunctionInfo(nodeType)
 		case *ast.GenDecl:
 			switch nodeType.Tok {
 			case token.TYPE:
@@ -63,39 +69,37 @@ func run(pass *codescan.Pass) (interface{}, error) {
 					typeSpec := spec.(*ast.TypeSpec)
 					switch unknownType := typeSpec.Type.(type) {
 					case *ast.InterfaceType:
-						// e.g. `type Itf interface{}`
-						result.ReadInterfaceInfo(spec, defs[typeSpec.Name], nodeType.Doc)
+						// e.g. `type Intf interface{}`
+						result.ReadInterfaceInfo(spec, nodeType.Doc)
 					case *ast.ArrayType:
 						// e.g. `type Array []string`
-						if infoErr := result.ReadArrayInfo(spec, defs[typeSpec.Name], nodeType.Doc); infoErr != nil {
+						if infoErr := result.ReadArrayInfo(spec.(*ast.TypeSpec), nodeType.Doc); infoErr != nil {
 							err = infoErr
 						}
 						// e.g. `type Stru struct {}`
 					case *ast.StructType:
-						if infoErr := result.ReadStructInfo(spec, defs[typeSpec.Name], nodeType.Doc); infoErr != nil {
+						if infoErr := result.ReadStructInfo(spec.(*ast.TypeSpec), nodeType.Doc); infoErr != nil {
 							err = infoErr
 						}
 					case *ast.Ident:
 						// e.g. : `type String string`
-						info := FieldInfo{Name: defs[typeSpec.Name].Name(), Comment: nodeType.Doc}
-						result.ReadIdent(unknownType, &info)
-						result.FieldsDefs[info.Name] = &info
+						result.ReadIdent(unknownType, nil, nodeType.Doc)
+
 					default:
 						log.Printf("Have you modified the filter ? Unhandled : %#v\n", unknownType)
 					}
 				}
 			case token.VAR, token.CONST:
 				for _, spec := range nodeType.Specs {
-					obj := pass.TypesInfo.Defs[spec.(*ast.ValueSpec).Names[0]]
 					switch vl := spec.(type) {
 					case *ast.ValueSpec:
-						result.ReadVariablesInfo(vl, obj)
+						result.ReadVariablesInfo(spec, vl)
 					}
 				}
 			}
 		}
 	})
-	result.RawAST = defs // exposed just in case someone wants to get wild
+
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +111,8 @@ var (
 	outputFile   = flag.String("output", "", "name of the output file e.g. json_gen.go")
 	templateFile = flag.String("template", "", "name of the template file e.g. ./../templates/")
 	peerStruct   = flag.String("target", "", "name of the peer struct e.g. ./../testdata/pkg/model_b/SomeProtoBufPayload")
-	testMode     = flag.Bool("testmode", false, "is in test mode : just display the result") // todo make this true
+	testMode     = flag.Bool("testmode", false, "is in test mode : just display the result")
+	debugPrint   = flag.Bool("debug", false, "print debugging info")
 )
 
 func loadTemplate(path string, fnMap template.FuncMap) (*template.Template, error) {
@@ -194,7 +199,9 @@ func (d *Doc) SetSelectedTypeNotNil() bool {
 		log.Println("Selected type is nil")
 		return false
 	}
-	log.Println("SetSelectedTypeNotNil " + d.CurrentType.TypeName)
+	if *debugPrint {
+		log.Println("SetSelectedTypeNotNil " + d.CurrentType.Kind)
+	}
 	return true
 }
 
@@ -203,13 +210,15 @@ func (d *Doc) SetSelectedTypeInfo(newType *TypeInfo) *TypeInfo {
 		log.Println("error : new type is nil")
 		return nil
 	}
-	d.SelectedType = newType.TypeName
+	d.SelectedType = newType.Kind
 	found := false
-	d.CurrentType, found = d.PackageInfo.StructDefs[newType.TypeName]
+	d.CurrentType, found = d.PackageInfo.StructDefs[newType.Kind]
 	if !found {
-		log.Printf("%q not found while setting selected type", newType.TypeName)
+		log.Printf("%q not found while setting selected type", newType.Kind)
 	}
-	log.Println("Select type " + d.CurrentType.TypeName)
+	if *debugPrint {
+		log.Println("Select type " + d.CurrentType.Kind)
+	}
 	return d.CurrentType
 }
 
@@ -221,7 +230,9 @@ func (d *Doc) SetSelectedType(newType string) string {
 		log.Printf("%q not found while setting selected type", newType)
 		return ""
 	}
-	log.Println("SetSelectedType " + d.CurrentType.TypeName)
+	if *debugPrint {
+		log.Println("SetSelectedType " + d.CurrentType.Kind)
+	}
 	return ""
 }
 
@@ -243,6 +254,14 @@ func (d *Doc) Store(key string, value interface{}) bool {
 func (d *Doc) Retrieve(key string) interface{} {
 	value, _ := d.keeper[key]
 	return value
+}
+
+func (d *Doc) HasInStore(key string) bool {
+	_, has := d.keeper[key]
+	if *debugPrint {
+		log.Printf("Has in store %q = %t", key, has)
+	}
+	return has
 }
 
 func (d *Doc) Keeper() map[string]interface{} {
@@ -300,7 +319,7 @@ func main() {
 	)
 	templatePath, err = filepath.Abs(*templateFile)
 
-	log.Printf("Processing type : %q - test mode : %t\n", *typeName, *testMode)
+	log.Printf("Processing type : %q - test mode : %t, printing debug : %t\n", *typeName, *testMode, *debugPrint)
 
 	flag.Usage = func() {
 		paras := strings.Split(analyzer.Doc, "\n\n")
@@ -323,7 +342,7 @@ func main() {
 	if !*testMode && *outputFile == "" {
 		log.Fatal("Error : you have to specify the Go file which will be produced")
 	}
-	mAnalyzer.PrintDebug = *testMode
+	mAnalyzer.PrintDebug = *debugPrint
 
 	initial, err := codescan.Load(args)
 	if err != nil {
@@ -392,7 +411,26 @@ func main() {
 				}
 				result := buf.String()
 				doc.keeper[storeName] = result
-				log.Printf("%q stored.", storeName)
+				if *debugPrint {
+					log.Printf("%q stored.", storeName)
+				}
+				return true
+			},
+			"includeAndStoreArray": func(name string, data *FieldInfo, storeName string) bool {
+				var buf strings.Builder
+				if *debugPrint {
+					log.Printf("DATA : %#v", data)
+				}
+				err := tmpl.ExecuteTemplate(&buf, name, TypeWithRoot{D: &doc, T: &TypeInfo{Name: data.Name, Kind: data.Name, Fields: Fields{data}, IsArray: true}})
+				if err != nil {
+					log.Printf("Include Error : %v", err)
+					return false
+				}
+				result := buf.String()
+				doc.keeper[storeName] = result
+				if *debugPrint {
+					log.Printf("%q stored.", storeName)
+				}
 				return true
 			},
 			"concat": func(a, b string) string {

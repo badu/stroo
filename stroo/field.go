@@ -3,83 +3,34 @@ package stroo
 import (
 	"go/ast"
 	"log"
-	"strconv"
 	"strings"
 )
 
 type FieldInfo struct {
-	Name           string
-	TypeName       string
-	IsBasic        bool
-	IsPointer      bool
-	IsStruct       bool
-	IsArray        bool
-	IsMap          bool
-	IsChan         bool
-	IsExported     bool
-	IsEmbedded     bool
-	Reference      *TypeInfo  // if it's a struct, we have struct info here
-	ArrayReference *FieldInfo // if it's array, we have the field info here
-	Tags           *Tags
-	Comment        *ast.CommentGroup
-	Package        string
-	PackagePath    string
-	MethodList     Methods
-	ReferenceName  string // after nullified Reference or ArrayReference, we keep the name here to get from cache
+	Name          string
+	Kind          string
+	IsBasic       bool
+	IsPointer     bool
+	IsStruct      bool
+	IsArray       bool
+	IsMap         bool
+	IsChan        bool
+	IsExported    bool
+	IsEmbedded    bool
+	IsImported    bool
+	IsInterface   bool
+	Reference     *TypeInfo // if it's a struct, we have struct info here
+	Tags          *Tags
+	Package       string
+	PackagePath   string
+	ReferenceName string // after nullified Reference or ArrayReference, we keep the name here to get from cache
+	Comment       *ast.CommentGroup
 }
 
 var (
 	VisitedStructs = make(map[string]struct{})
 	VisitedFields  = make(map[string]string)
 )
-
-func (st FieldInfo) String() string {
-	var sb strings.Builder
-
-	if st.ArrayReference != nil {
-
-		// struct of  `*FieldInfo`
-
-		// Packages : FieldInfo = `stroo` `stroo`
-
-	}
-
-	sb.WriteString("IsArray=" + strconv.FormatBool(st.IsArray) + "\n")
-
-	sb.WriteString("IsBasic=" + strconv.FormatBool(st.IsBasic) + "\n")
-
-	sb.WriteString("IsChan=" + strconv.FormatBool(st.IsChan) + "\n")
-
-	sb.WriteString("IsEmbedded=" + strconv.FormatBool(st.IsEmbedded) + "\n")
-
-	sb.WriteString("IsExported=" + strconv.FormatBool(st.IsExported) + "\n")
-
-	sb.WriteString("IsMap=" + strconv.FormatBool(st.IsMap) + "\n")
-
-	sb.WriteString("IsPointer=" + strconv.FormatBool(st.IsPointer) + "\n")
-
-	sb.WriteString("IsStruct=" + strconv.FormatBool(st.IsStruct) + "\n")
-
-	sb.WriteString("Name=" + st.Name + "\n")
-
-	sb.WriteString("Package=" + st.Package + "\n")
-
-	sb.WriteString("PackagePath=" + st.PackagePath + "\n")
-
-	if st.Reference != nil {
-
-	}
-
-	sb.WriteString("ReferenceName=" + st.ReferenceName + "\n")
-
-	if st.Tags != nil {
-
-	}
-
-	sb.WriteString("TypeName=" + st.TypeName + "\n")
-
-	return sb.String()
-}
 
 // cannot implement Stringer due to tests
 func (f *FieldInfo) Debug(sb *strings.Builder, args ...int) {
@@ -94,8 +45,8 @@ func (f *FieldInfo) Debug(sb *strings.Builder, args ...int) {
 	if f.Name != "" {
 		sb.WriteString(tabs + "Name:\"" + f.Name + "\",\n")
 	}
-	if f.TypeName != "" {
-		sb.WriteString(tabs + "TypeName:\"" + f.TypeName + "\",\n")
+	if f.Kind != "" {
+		sb.WriteString(tabs + "TypeName:\"" + f.Kind + "\",\n")
 	}
 	if f.IsBasic {
 		sb.WriteString(tabs + "IsBasic:true,\n")
@@ -181,11 +132,6 @@ func (f *FieldInfo) Debug(sb *strings.Builder, args ...int) {
 		}
 	}
 
-	if tno > 0 {
-		f.MethodList.Debug(sb, tno)
-	} else {
-		f.MethodList.Debug(sb)
-	}
 	sb.WriteString(tabs + "},\n")
 }
 
@@ -202,35 +148,35 @@ func (f *FieldInfo) TagsByKey(name string) []string {
 }
 
 func (f *FieldInfo) IsBool() bool {
-	if f.TypeName == "bool" {
+	if f.Kind == "bool" {
 		return true
 	}
 	return false
 }
 
 func (f *FieldInfo) IsString() bool {
-	if f.TypeName == "string" {
+	if f.Kind == "string" {
 		return true
 	}
 	return false
 }
 
 func (f *FieldInfo) IsFloat() bool {
-	if f.TypeName == "float32" || f.TypeName == "float64" {
+	if f.Kind == "float32" || f.Kind == "float64" {
 		return true
 	}
 	return false
 }
 
 func (f *FieldInfo) IsUint() bool {
-	if f.TypeName == "uint" || f.TypeName == "uint8" || f.TypeName == "uint16" || f.TypeName == "uint32" || f.TypeName == "uint64" {
+	if f.Kind == "uint" || f.Kind == "uint8" || f.Kind == "uint16" || f.Kind == "uint32" || f.Kind == "uint64" {
 		return true
 	}
 	return false
 }
 
 func (f *FieldInfo) IsInt() bool {
-	if f.TypeName == "int" || f.TypeName == "int8" || f.TypeName == "int16" || f.TypeName == "int32" || f.TypeName == "int64" {
+	if f.Kind == "int" || f.Kind == "int8" || f.Kind == "int16" || f.Kind == "int32" || f.Kind == "int64" {
 		return true
 	}
 	return false
@@ -265,6 +211,6 @@ func (f Fields) Less(i, j int) bool {
 		return f[i].Name < f[j].Name
 	}
 	// for embedded fields
-	return f[i].TypeName < f[j].TypeName
+	return f[i].Kind < f[j].Kind
 }
 func (f Fields) Swap(i, j int) { f[i], f[j] = f[j], f[i] }

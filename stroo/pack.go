@@ -19,8 +19,7 @@ type PackageInfo struct {
 	Types      TypesSlice
 	Interfaces Interfaces
 	StructDefs map[string]*TypeInfo
-	FieldsDefs map[string]*FieldInfo
-	RawAST     map[*ast.Ident]types.Object
+	TypesInfo  *types.Info
 	PrintDebug bool
 }
 
@@ -54,13 +53,6 @@ func (pkg *PackageInfo) PostProcess() error {
 			continue
 		}
 
-		// look in arrays
-		arrayInfo, found := pkg.FieldsDefs[fn.ReceiverType]
-		if found {
-			arrayInfo.MethodList = append(arrayInfo.MethodList, fn)
-			continue
-		}
-
 		// normal function
 		// todo test
 		// log.Printf("function : %#v", fn)
@@ -70,46 +62,13 @@ func (pkg *PackageInfo) PostProcess() error {
 	// fix structs that are actually arrays + set the references
 	for _, typeDef := range pkg.Types {
 		for _, field := range typeDef.Fields {
-			if field.IsStruct {
-				if refInfo, found := pkg.StructDefs[field.TypeName]; found {
+			if field.IsStruct && !field.IsImported {
+				if refInfo, found := pkg.StructDefs[field.Kind]; found {
 					field.Reference = refInfo
 					field.IsArray = false
 					continue
 				}
-				if arrayInfo, found := pkg.FieldsDefs[field.TypeName]; found {
-					// skip basic fields
-					if arrayInfo.IsBasic {
-						field.IsStruct = false
-						field.IsArray = true
-						continue
-					}
-					// attempt to find it in structs
-					if refInfo, arrayFound := pkg.StructDefs[arrayInfo.TypeName]; arrayFound {
-						field.IsStruct = false
-						field.IsArray = true
-						arrayInfo.Reference = refInfo
-						field.Reference = refInfo        // the real reference to the struct
-						field.ArrayReference = arrayInfo // set it in case it's needed
-						continue
-					}
-					// attempt to find it in fields
-					if refInfo, fieldFound := pkg.FieldsDefs[arrayInfo.TypeName]; fieldFound {
-						fmt.Sprintf("Field %#v", refInfo)
-						field.IsStruct = false
-						field.IsArray = true
-						//arrayInfo.Reference = refInfo
-						//field.Reference = refInfo        // the real reference to the struct
-						field.ArrayReference = arrayInfo // set it in case it's needed
-						continue
-					}
-					// finally, we have fields from different packages
-					if arrayInfo.Package != field.Package {
-						continue
-					}
-					log.Fatalf("Struct (on array) not found\n-> array :\n %#v\n-> field :\n %#v", arrayInfo, field)
-
-				}
-				log.Fatalf("Struct not found %q:%q -> data :\n %#v", field.Name, field.TypeName, field)
+				log.Fatalf("Struct not found %q:%q [%q:%q] -> data :\n %#v", field.Name, field.Kind, field.Package, field.PackagePath, field)
 			}
 		}
 	}
@@ -120,91 +79,203 @@ func (pkg *PackageInfo) PostProcess() error {
 // currently, we accept the following definitions :
 // type T []V - where V is a basic type or a typed struct
 // type T []*V - where V is a basic type or a typed struct
-func (pkg *PackageInfo) ReadArrayInfo(spec ast.Spec, obj types.Object, comment *ast.CommentGroup) error {
-	astSpec := spec.(*ast.TypeSpec)
-	info := FieldInfo{
+func (pkg *PackageInfo) ReadArrayInfo(astSpec *ast.TypeSpec, comment *ast.CommentGroup) error {
+	info := TypeInfo{
 		Name:    astSpec.Name.Name,
 		Comment: comment,
 		IsArray: true,
 	}
-	if obj != nil {
-		info.Package = obj.Pkg().Name()
-		info.PackagePath = obj.Pkg().Path()
+	if pkg.PrintDebug {
+		log.Printf("==Traversing array %q==", astSpec.Name.Name)
 	}
-	if err := pkg.ReadArray(astSpec.Type.(*ast.ArrayType), &info); err != nil {
-		return err
+	found := false
+	for key, value := range pkg.TypesInfo.Defs {
+		if key.Name == astSpec.Name.Name {
+			info.Kind = value.Name()
+			switch value.Type().Underlying().(type) {
+			case *types.Slice:
+				info.IsArray = true
+			case *types.Pointer:
+				info.IsPointer = true
+			default:
+				log.Fatalf("Array Lookup unknown %q -> exported %t; type %#v; package= %v; id=%q", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id())
+			}
+			found = true
+			break
+		}
 	}
-	if value, has := pkg.FieldsDefs[info.Name]; has {
+	if !found {
+		log.Fatalf("%q not found while processing array %#v", astSpec.Name.Name, info)
+	}
+
+	//if err := pkg.ReadArray(astSpec.Type.(*ast.ArrayType), &info, comment); err != nil {
+	//	return err
+	//}
+	if value, has := pkg.StructDefs[info.Name]; has {
 		return fmt.Errorf("error : array %q already defined\n%#v", info.Name, value)
 	}
-	pkg.FieldsDefs[info.Name] = &info
+	pkg.StructDefs[info.Name] = &info
 	return nil
 }
 
-func (pkg *PackageInfo) ReadIdent(ident *ast.Ident, info *FieldInfo) {
-	info.TypeName = ident.Name
-	if ident.Obj == nil {
-		info.IsBasic = true
-	} else {
-		info.IsStruct = true
+/**
+There are eight kinds of objects in the Go type checker :
+Object = *Func         // function, concrete method, or abstract method
+       | *Var          // variable, parameter, result, or struct field
+       | *Const        // constant
+       | *TypeName     // type name
+       | *Label        // statement label
+       | *PkgName      // package name, e.g. json after import "encoding/json"
+       | *Builtin      // predeclared function such as append or len
+       | *Nil          // predeclared nil
+
+type Object interface {
+	Name() string   // package-local object name
+	Exported() bool // reports whether the name starts with a capital letter
+	Type() Type     // object type
+	Pos() token.Pos // position of object identifier in declaration
+
+	Parent() *Scope // scope in which this object is declared
+	Pkg() *Package  // nil for objects in the Universe scope and labels
+	Id() string     // object id (see Ids section below)
+}
+
+func (*Func) Scope() *Scope
+func (*Var) Anonymous() bool
+func (*Var) IsField() bool
+func (*Const) Val() constant.Value
+func (*TypeName) IsAlias() bool
+func (*PkgName) Imported() *Package
+
+Type = *Basic
+     | *Pointer
+     | *Array
+     | *Slice
+     | *Map
+     | *Chan
+     | *Struct
+     | *Tuple
+     | *Signature
+     | *Named
+     | *Interface
+*/
+func (pkg *PackageInfo) Lookup(named string, info *FieldInfo) types.Object {
+	for key, value := range pkg.TypesInfo.Defs {
+		if key.Name == named {
+			info.Kind = value.Name()
+			switch value.Type().Underlying().(type) {
+			case *types.Pointer:
+				info.IsPointer = true
+			case *types.Struct:
+				info.IsStruct = true
+			case *types.Slice:
+				info.IsArray = true
+			case *types.Interface:
+				info.IsInterface = true
+			default:
+				log.Fatalf("Lookup unknown %q -> exported %t; type %#v; package= %v; id=%q", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id())
+			}
+			return value
+		}
 	}
+	return nil
+}
+
+func (pkg *PackageInfo) ReadIdent(ident *ast.Ident, info *FieldInfo, comment *ast.CommentGroup) {
+	if info == nil {
+		// TODO : comment + test
+		info = &FieldInfo{Name: pkg.TypesInfo.Defs[ident].Name(), Comment: comment}
+		if pkg.PrintDebug {
+			log.Printf("Self Adding %q", info.Name)
+		}
+		panic("not implemented")
+	}
+
+	switch ident.Name {
+	case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "complex64", "complex128", "string":
+		info.IsBasic = true
+		info.Kind = ident.Name
+	default:
+		obj := pkg.Lookup(ident.Name, info)
+		if obj == nil {
+			//log.Fatalf("%q not found while processing ident %#v", ident.Name, info)
+		}
+	}
+
 	if pkg.PrintDebug {
-		log.Printf("ReadIdent : typename = %q basic = %t struct = %t", info.TypeName, info.IsBasic, info.IsStruct)
+		if !info.IsBasic {
+			log.Printf("[%q] kind = %q pointer = %t basic = %t struct = %t array = %t package %q", info.Name, info.Kind, info.IsPointer, info.IsBasic, info.IsStruct, info.IsArray, info.Package)
+		}
+	}
+
+}
+
+func (pkg *PackageInfo) ReadSelector(sel *ast.SelectorExpr, info *FieldInfo, comment *ast.CommentGroup) {
+	info.IsImported = true
+	if ident, ok := sel.X.(*ast.Ident); ok {
+		info.Package = ident.Name
+		info.Kind = sel.Sel.Name
+		if pkg.PrintDebug {
+			log.Printf("SelectorExpr : %q.%q", info.Package, info.Kind)
+		}
+		pkg.ReadIdent(ident, info, comment)
+	} else {
+		log.Fatalf("*ast.SelectorExpr.X is not *ast.Ident")
 	}
 }
 
-func (pkg *PackageInfo) ReadPointer(ptr *ast.StarExpr, info *FieldInfo) error {
+func (pkg *PackageInfo) ReadPointer(ptr *ast.StarExpr, info *FieldInfo, comment *ast.CommentGroup) error {
+	if pkg.PrintDebug {
+		log.Printf("%q is pointer", info.Name)
+	}
 	info.IsPointer = true
 	switch ptrType := ptr.X.(type) {
 	case *ast.Ident:
-		pkg.ReadIdent(ptrType, info)
-		if pkg.PrintDebug {
-			log.Printf("ReadPointer : pointer = %t", info.IsPointer)
-		}
+		pkg.ReadIdent(ptrType, info, comment)
 	case *ast.SelectorExpr:
 		// fields from other packages
-		if ident, ok := ptrType.X.(*ast.Ident); ok {
-			info.Package = ident.Name
-			info.TypeName = ptrType.Sel.Name
-		}
-		if pkg.PrintDebug {
-			log.Printf("ReadPointer : %q.%q pointer = %t", info.Package, info.TypeName, info.IsPointer)
-		}
+		pkg.ReadSelector(ptrType, info, comment)
 	default:
 		return fmt.Errorf(ErrNotImplemented, ptr, info.Name)
 	}
 	return nil
 }
 
-func (pkg *PackageInfo) ReadArray(arr *ast.ArrayType, info *FieldInfo) error {
+// TODO : not used
+func (pkg *PackageInfo) ReadArray(arr *ast.ArrayType, info *FieldInfo, comment *ast.CommentGroup) error {
 	info.IsArray = true
 	switch elType := arr.Elt.(type) {
 	case *ast.Ident:
-		pkg.ReadIdent(elType, info)
+		pkg.ReadIdent(elType, info, comment)
 	case *ast.StarExpr:
-		if err := pkg.ReadPointer(elType, info); err != nil {
+		if err := pkg.ReadPointer(elType, info, comment); err != nil {
 			return err
 		}
 	default:
 		return fmt.Errorf(ErrNotImplemented, elType, info.Name)
 	}
 	if pkg.PrintDebug {
-		log.Printf("ReadArray : array = %t", info.IsArray)
+		log.Printf("[%q] ReadArray : array = %t", info.Name, info.IsArray)
 	}
 	return nil
 }
 
 // get struct information from structure type declaration
-func (pkg *PackageInfo) ReadStructInfo(spec ast.Spec, obj types.Object, comment *ast.CommentGroup) error {
-	astSpec := spec.(*ast.TypeSpec)
+func (pkg *PackageInfo) ReadStructInfo(astSpec *ast.TypeSpec, comment *ast.CommentGroup) error {
 	info := TypeInfo{
-		Name:     astSpec.Name.Name,
-		TypeName: astSpec.Name.Name,
-		Comment:  comment,
+		Name:    astSpec.Name.Name,
+		Kind:    astSpec.Name.Name,
+		Comment: comment,
 	}
-	if obj != nil {
+	if pkg.PrintDebug {
+		log.Printf("==Traversing struct %q==", astSpec.Name.Name)
+	}
+	obj, found := pkg.TypesInfo.Defs[astSpec.Name]
+	if found {
 		info.Package = obj.Pkg().Name()
 		info.PackagePath = obj.Pkg().Path()
+	} else {
+		log.Printf("%q not found in TypesInfo.Defs", astSpec.Name)
 	}
 	for _, field := range astSpec.Type.(*ast.StructType).Fields.List {
 		if len(field.Names) == 0 {
@@ -212,11 +283,11 @@ func (pkg *PackageInfo) ReadStructInfo(spec ast.Spec, obj types.Object, comment 
 			embeddedField := FieldInfo{IsEmbedded: true}
 			switch fieldType := field.Type.(type) {
 			case *ast.StarExpr:
-				if err := pkg.ReadPointer(fieldType, &embeddedField); err != nil {
+				if err := pkg.ReadPointer(fieldType, &embeddedField, nil); err != nil {
 					return err
 				}
 			case *ast.Ident:
-				pkg.ReadIdent(fieldType, &embeddedField)
+				pkg.ReadIdent(fieldType, &embeddedField, nil)
 			default:
 				// not allowed
 				return fmt.Errorf(ErrNotImplemented, fieldType, info.Name)
@@ -225,49 +296,25 @@ func (pkg *PackageInfo) ReadStructInfo(spec ast.Spec, obj types.Object, comment 
 			continue
 		}
 		newField := FieldInfo{Name: field.Names[0].Name, IsExported: field.Names[0].IsExported(), Comment: field.Comment}
-		if false {
-			log.Printf("[%q] Name %q- exported : %t", info.Name, field.Names[0].Name, field.Names[0].IsExported())
-			log.Printf("[%q] Type %#v", info.Name, field.Type)
-			if field.Tag != nil {
-				log.Printf("[%q] Tag %#v", info.Name, field.Tag.Value)
-			}
-			if field.Doc != nil {
-				log.Printf("Doc %#v", field.Doc)
-			}
-			if field.Comment != nil {
-				log.Printf("Comment %#v", field.Comment)
-			}
+		if pkg.PrintDebug {
+			log.Printf("inspecting %q %T", newField.Name, field.Type)
 		}
 		switch fieldType := field.Type.(type) {
 		case *ast.StarExpr:
-			if err := pkg.ReadPointer(fieldType, &newField); err != nil {
+			if err := pkg.ReadPointer(fieldType, &newField, nil); err != nil {
 				return err
 			}
 		case *ast.Ident:
-			pkg.ReadIdent(fieldType, &newField)
+			pkg.ReadIdent(fieldType, &newField, nil)
 		case *ast.MapType:
 			newField.IsMap = true
 		case *ast.ChanType:
 			newField.IsChan = true
 		case *ast.ArrayType:
-			if err := pkg.ReadArray(fieldType, &newField); err != nil {
-				return err
-			}
-			if value, has := pkg.FieldsDefs[newField.Name]; has {
-				return fmt.Errorf("error : array %q on %q already defined:\n%#v\nnew:\n%#vDo you have definitions like Strings []string?", newField.Name, info.Name, value, newField)
-			}
-			pkg.FieldsDefs[newField.Name] = &newField
+			newField.IsArray = true
 		case *ast.SelectorExpr:
 			// fields from other packages
-			if ident, ok := fieldType.X.(*ast.Ident); ok {
-				newField.Package = ident.Name
-				newField.TypeName = fieldType.Sel.Name
-				if pkg.PrintDebug {
-					log.Printf("SelectorExpr : %q.%q", newField.Package, newField.TypeName)
-				}
-			} else {
-				return fmt.Errorf(ErrNotImplemented, fieldType, info.Name)
-			}
+			pkg.ReadSelector(fieldType, &newField, nil)
 		default:
 			return fmt.Errorf(ErrNotImplemented, fieldType, info.Name)
 		}
@@ -290,24 +337,28 @@ func (pkg *PackageInfo) ReadStructInfo(spec ast.Spec, obj types.Object, comment 
 }
 
 // get function information from the function object
-func (pkg *PackageInfo) ReadFunctionInfo(spec *ast.FuncDecl, obj types.Object) {
+func (pkg *PackageInfo) ReadFunctionInfo(spec *ast.FuncDecl) {
+
 	info := FunctionInfo{
 		Name:         spec.Name.Name,
 		ReceiverName: stringer(getReceiver(spec)),
 		ReceiverType: stringer(getReceiverType(spec)),
 		IsExported:   spec.Name.IsExported(),
 	}
+	obj := pkg.TypesInfo.Defs[spec.Name]
 	if obj != nil {
 		typ := obj.(*types.Func)
 		info.Package = typ.Pkg().Name()
 		info.PackagePath = typ.Pkg().Path()
 		info.ReturnType = typ.Type().String()
+	} else if pkg.PrintDebug {
+		log.Printf("ReadFunctionInfo : obj is nil")
 	}
 	pkg.Functions = append(pkg.Functions, &info)
 }
 
 // get interface information from interface type declaration
-func (pkg *PackageInfo) ReadInterfaceInfo(spec ast.Spec, obj types.Object, comment *ast.CommentGroup) {
+func (pkg *PackageInfo) ReadInterfaceInfo(spec ast.Spec, comment *ast.CommentGroup) {
 	//var list []InterfaceInfo
 	astSpec := spec.(*ast.TypeSpec)
 	var methods []string
@@ -322,6 +373,7 @@ func (pkg *PackageInfo) ReadInterfaceInfo(spec ast.Spec, obj types.Object, comme
 		Methods: methods,
 		Comment: comment,
 	}
+	obj := pkg.TypesInfo.Defs[astSpec.Name]
 	if obj != nil {
 		info.Package = obj.Pkg().Name()
 		info.PackagePath = obj.Pkg().Path()
@@ -329,11 +381,12 @@ func (pkg *PackageInfo) ReadInterfaceInfo(spec ast.Spec, obj types.Object, comme
 	pkg.Interfaces = append(pkg.Interfaces, &info)
 }
 
-func (pkg *PackageInfo) ReadVariablesInfo(spec *ast.ValueSpec, obj types.Object) {
+func (pkg *PackageInfo) ReadVariablesInfo(spec ast.Spec, valueSpec *ast.ValueSpec) {
+	obj := pkg.TypesInfo.Defs[spec.(*ast.ValueSpec).Names[0]]
 	if obj == nil {
 		return
 	}
-	for _, varName := range spec.Names {
+	for _, varName := range valueSpec.Names {
 		var name string
 		switch obj.(type) {
 		case *types.Var:
