@@ -8,37 +8,23 @@ type VarInfo struct {
 }
 
 // cannot implement Stringer due to tests
-func (v VarInfo) Debug(sb *strings.Builder, args ...int) {
-	var tabs string
-	var tno int
-	if len(args) > 0 {
-		tno = args[0]
-		tabs = strings.Repeat("\t", tno)
-		tno++
-	}
-	sb.WriteString("-----VAR-----\n")
-	sb.WriteString(tabs + "Name:" + v.Name + "\n")
-	sb.WriteString(tabs + "Type:" + v.Type + "\n")
+func (v VarInfo) Debug(sdb *Debugger) {
+	tabs := strings.Repeat("\t", sdb.tabs)
+	sdb.WriteString("-----VAR-----\n")
+	sdb.WriteString(tabs + "Name:" + v.Name + "\n")
+	sdb.WriteString(tabs + "Type:" + v.Type + "\n")
 }
 
 type Vars []VarInfo
 
 // cannot implement Stringer due to tests
-func (v Vars) Debug(sb *strings.Builder, args ...int) {
-	var tabs string
-	var tno int
-	if len(args) > 0 {
-		tno = args[0]
-		tabs = strings.Repeat("\t", tno)
-		tno++
-	}
-	sb.WriteString(tabs + "Vars:Vars{\n")
+func (v Vars) Debug(sdb *Debugger) {
+	tabs := strings.Repeat("\t", sdb.tabs)
+	sdb.WriteString(tabs + "Vars:Vars{\n")
+	sdb.tabs++
 	for _, vr := range v {
-		if tno > 0 {
-			vr.Debug(sb, tno)
-		} else {
-			vr.Debug(sb)
-		}
+		vr.Debug(sdb)
 	}
-	sb.WriteString(tabs + "},\n")
+	sdb.tabs--
+	sdb.WriteString(tabs + "},\n")
 }

@@ -1,6 +1,8 @@
 package stroo
 
-import "strings"
+import (
+	"strings"
+)
 
 type FunctionInfo struct {
 	Name         string
@@ -13,47 +15,33 @@ type FunctionInfo struct {
 }
 
 // cannot implement Stringer due to tests
-func (f FunctionInfo) Debug(sb *strings.Builder, args ...int) {
-	var tabs string
-	var tno int
-	if len(args) > 0 {
-		tno = args[0]
-		tabs = strings.Repeat("\t", tno)
-		tno++
-	}
-	sb.WriteString(tabs + "&FunctionInfo{\n")
-	sb.WriteString(tabs + "Name:\"" + f.Name + "\",\n")
+func (f FunctionInfo) Debug(sdb *Debugger) {
+	tabs := strings.Repeat("\t", sdb.tabs)
+	sdb.WriteString(tabs + "&FunctionInfo{\n")
+	sdb.WriteString(tabs + "Name:\"" + f.Name + "\",\n")
 	if f.Package != "" {
-		sb.WriteString(tabs + "Package:\"" + f.Package + "\",\n")
+		sdb.WriteString(tabs + "Package:\"" + f.Package + "\",\n")
 	}
 	if f.PackagePath != "" {
-		sb.WriteString(tabs + "PackagePath:\"" + f.PackagePath + "\",\n")
+		sdb.WriteString(tabs + "PackagePath:\"" + f.PackagePath + "\",\n")
 	}
-	sb.WriteString(tabs + "},\n")
+	sdb.WriteString(tabs + "},\n")
 }
 
 type Methods []*FunctionInfo
 
 // cannot implement Stringer due to tests
-func (m Methods) Debug(sb *strings.Builder, args ...int) {
-	var tabs string
-	var tno int
-	if len(args) > 0 {
-		tno = args[0]
-		tabs = strings.Repeat("\t", tno)
-		tno++
-	}
+func (m Methods) Debug(sdb *Debugger) {
+	tabs := strings.Repeat("\t", sdb.tabs)
 	if len(m) > 0 {
-		sb.WriteString(tabs + "&Methods{\n")
+		sdb.WriteString(tabs + "&Methods{\n")
 	}
+	sdb.tabs++
 	for _, meth := range m {
-		if tno > 0 {
-			meth.Debug(sb, tno)
-		} else {
-			meth.Debug(sb)
-		}
+		meth.Debug(sdb)
 	}
+	sdb.tabs--
 	if len(m) > 0 {
-		sb.WriteString(tabs + "},\n")
+		sdb.WriteString(tabs + "},\n")
 	}
 }

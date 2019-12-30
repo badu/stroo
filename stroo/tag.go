@@ -103,17 +103,11 @@ func (t *Tag) Value() string {
 }
 
 // cannot implement Stringer due to tests
-func (t Tag) Debug(sb *strings.Builder, args ...int) {
-	var tabs string
-	var tno int
-	if len(args) > 0 {
-		tno = args[0]
-		tabs = strings.Repeat("\t", tno)
-		tno++
-	}
-	sb.WriteString(tabs + "&Tag{")
-	sb.WriteString("Key:\"" + t.Key + "\",")
-	sb.WriteString("Name:\"" + t.Name + "\"")
+func (t Tag) Debug(sdb *Debugger) {
+	tabs := strings.Repeat("\t", sdb.tabs)
+	sdb.WriteString(tabs + "&Tag{")
+	sdb.WriteString("Key:\"" + t.Key + "\",")
+	sdb.WriteString("Name:\"" + t.Name + "\"")
 	opts := ""
 	for idx, option := range t.Options {
 		if idx > 0 {
@@ -122,32 +116,24 @@ func (t Tag) Debug(sb *strings.Builder, args ...int) {
 		opts += "\"" + option + "\""
 	}
 	if len(opts) > 0 {
-		sb.WriteString(",Options:[]string{" + opts + "}")
+		sdb.WriteString(",Options:[]string{" + opts + "}")
 	}
-	sb.WriteString("},\n")
+	sdb.WriteString("},\n")
 }
 
 // cannot implement Stringer due to tests
-func (t Tags) Debug(sb *strings.Builder, args ...int) {
-	var tabs string
-	var tno int
-	if len(args) > 0 {
-		tno = args[0]
-		tabs = strings.Repeat("\t", tno)
-		tno++
-	}
+func (t Tags) Debug(sdb *Debugger) {
+	tabs := strings.Repeat("\t", sdb.tabs)
 	if len(t) > 0 {
-		sb.WriteString(tabs + "Tags:&Tags{\n")
+		sdb.WriteString(tabs + "Tags:&Tags{\n")
 	}
+	sdb.tabs++
 	for _, tag := range t {
-		if tno > 0 {
-			tag.Debug(sb, tno)
-		} else {
-			tag.Debug(sb)
-		}
+		tag.Debug(sdb)
 	}
+	sdb.tabs--
 	if len(t) > 0 {
-		sb.WriteString(tabs + "},\n")
+		sdb.WriteString(tabs + "},\n")
 	}
 }
 

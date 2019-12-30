@@ -14,43 +14,29 @@ type InterfaceInfo struct {
 }
 
 // cannot implement Stringer due to tests
-func (i InterfaceInfo) Debug(sb *strings.Builder, args ...int) {
-	var tabs string
-	var tno int
-	if len(args) > 0 {
-		tno = args[0]
-		tabs = strings.Repeat("\t", tno)
-		tno++
-	}
-	sb.WriteString("-----INTERFACE-----\n")
-	sb.WriteString(tabs + "Name:" + i.Name + "\n")
+func (i InterfaceInfo) Debug(sdb *Debugger) {
+	tabs := strings.Repeat("\t", sdb.tabs)
+	sdb.WriteString("-----INTERFACE-----\n")
+	sdb.WriteString(tabs + "Name:" + i.Name + "\n")
 	for _, meth := range i.Methods {
-		sb.WriteString(tabs + "Method:" + meth + "\n")
+		sdb.WriteString(tabs + "Method:" + meth + "\n")
 	}
 }
 
 type Interfaces []*InterfaceInfo
 
 // cannot implement Stringer due to tests
-func (i Interfaces) Debug(sb *strings.Builder, args ...int) {
-	var tabs string
-	var tno int
-	if len(args) > 0 {
-		tno = args[0]
-		tabs = strings.Repeat("\t", tno)
-		tno++
-	}
+func (i Interfaces) Debug(sdb *Debugger) {
+	tabs := strings.Repeat("\t", sdb.tabs)
 	if len(i) > 0 {
-		sb.WriteString(tabs + "&Interfaces{\n")
+		sdb.WriteString(tabs + "&Interfaces{\n")
 	}
+	sdb.tabs++
 	for _, ifa := range i {
-		if tno > 0 {
-			ifa.Debug(sb, tno)
-		} else {
-			ifa.Debug(sb)
-		}
+		ifa.Debug(sdb)
 	}
+	sdb.tabs--
 	if len(i) > 0 {
-		sb.WriteString(tabs + "},\n")
+		sdb.WriteString(tabs + "},\n")
 	}
 }

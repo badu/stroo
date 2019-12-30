@@ -1,6 +1,8 @@
 package stroo
 
-import "go/ast"
+import (
+	"go/ast"
+)
 
 func getReceiver(fnDecl *ast.FuncDecl) interface{} {
 	if fnDecl.Recv == nil {

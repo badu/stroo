@@ -45,7 +45,10 @@ func run(pass *codescan.Pass) (interface{}, error) {
 			(*ast.GenDecl)(nil),
 		}
 		err    error
-		result = &PackageInfo{Name: pass.Pkg.Name(), StructDefs: make(map[string]*TypeInfo), PrintDebug: mAnalyzer.PrintDebug}
+		result = &PackageInfo{
+			Name:       pass.Pkg.Name(),
+			PrintDebug: mAnalyzer.PrintDebug,
+		}
 	)
 	inspector, ok := pass.ResultOf[mAnalyzer].(*codescan.Inspector)
 	if !ok {
@@ -100,10 +103,7 @@ func run(pass *codescan.Pass) (interface{}, error) {
 		}
 	})
 
-	if err != nil {
-		return nil, err
-	}
-	return result, result.PostProcess()
+	return result, err
 }
 
 var (
@@ -211,9 +211,8 @@ func (d *Doc) SetSelectedTypeInfo(newType *TypeInfo) *TypeInfo {
 		return nil
 	}
 	d.SelectedType = newType.Kind
-	found := false
-	d.CurrentType, found = d.PackageInfo.StructDefs[newType.Kind]
-	if !found {
+	d.CurrentType = d.PackageInfo.Types.Extract(newType.Kind)
+	if d.CurrentType == nil {
 		log.Printf("%q not found while setting selected type", newType.Kind)
 	}
 	if *debugPrint {
@@ -224,9 +223,8 @@ func (d *Doc) SetSelectedTypeInfo(newType *TypeInfo) *TypeInfo {
 
 func (d *Doc) SetSelectedType(newType string) string {
 	d.SelectedType = newType
-	found := false
-	d.CurrentType, found = d.PackageInfo.StructDefs[newType]
-	if !found {
+	d.CurrentType = d.PackageInfo.Types.Extract(newType)
+	if d.CurrentType == nil {
 		log.Printf("%q not found while setting selected type", newType)
 		return ""
 	}
@@ -237,11 +235,7 @@ func (d *Doc) SetSelectedType(newType string) string {
 }
 
 func (d *Doc) GetStructByKey(key string) *TypeInfo {
-	structInfo, ok := d.PackageInfo.StructDefs[key]
-	if ok {
-		return structInfo
-	}
-	return nil
+	return d.PackageInfo.Types.Extract(key)
 }
 
 // returns true if the key exist and will overwrite
@@ -378,7 +372,7 @@ func main() {
 			TestMode:     *testMode,
 			keeper:       make(map[string]interface{}),
 		}
-		doc.Main = TypeWithRoot{D: &doc, T: packageInfo.GetStructByKey(*typeName)}
+		doc.Main = TypeWithRoot{D: &doc, T: packageInfo.Types.Extract(*typeName)}
 
 		tmpl, err = loadTemplate(templatePath, template.FuncMap{
 			"in":            contains,
@@ -394,34 +388,15 @@ func main() {
 			"dump": func(a ...interface{}) string {
 				return spew.Sdump(a...)
 			},
-			"include": func(name string, data *TypeInfo) string {
-				var buf strings.Builder
-				err := tmpl.ExecuteTemplate(&buf, name, TypeWithRoot{D: &doc, T: data})
-				if err != nil {
-					log.Printf("Include Error : %v", err)
-				}
-				return buf.String()
-			},
-			"includeAndStore": func(name string, data *TypeInfo, storeName string) bool {
-				var buf strings.Builder
-				err := tmpl.ExecuteTemplate(&buf, name, TypeWithRoot{D: &doc, T: data})
-				if err != nil {
-					log.Printf("Include Error : %v", err)
+			"includeAndStore": func(name, kind, storeName string) bool {
+				// already has it
+				if _, has := doc.keeper[storeName]; has {
+					log.Printf("%q already stored.", storeName)
 					return false
 				}
-				result := buf.String()
-				doc.keeper[storeName] = result
-				if *debugPrint {
-					log.Printf("%q stored.", storeName)
-				}
-				return true
-			},
-			"includeAndStoreArray": func(name string, data *FieldInfo, storeName string) bool {
+				doc.keeper[storeName] = "processing" // entering here again
 				var buf strings.Builder
-				if *debugPrint {
-					log.Printf("DATA : %#v", data)
-				}
-				err := tmpl.ExecuteTemplate(&buf, name, TypeWithRoot{D: &doc, T: &TypeInfo{Name: data.Name, Kind: data.Name, Fields: Fields{data}, IsArray: true}})
+				err := tmpl.ExecuteTemplate(&buf, name, TypeWithRoot{D: &doc, T: doc.PackageInfo.Types.Extract(kind)})
 				if err != nil {
 					log.Printf("Include Error : %v", err)
 					return false
