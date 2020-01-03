@@ -24,7 +24,6 @@ import (
 	. "github.com/badu/stroo/stroo"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-openapi/swag"
 )
 
 var mAnalyzer = &codescan.Analyzer{
@@ -86,8 +85,13 @@ func run(pass *codescan.Pass) (interface{}, error) {
 						}
 					case *ast.Ident:
 						// e.g. : `type String string`
-						result.ReadIdent(unknownType, nil, nodeType.Doc)
-
+						result.DirectIdent(unknownType, nodeType.Doc)
+					case *ast.SelectorExpr:
+						// e.g. : `type Timer time.Ticker`
+						result.DirectSelector(unknownType, nodeType.Doc)
+					case *ast.StarExpr:
+						// e.g. : `type Timer *time.Ticker`
+						result.DirectPointer(unknownType, nodeType.Doc)
 					default:
 						log.Printf("Have you modified the filter ? Unhandled : %#v\n", unknownType)
 					}
@@ -175,66 +179,26 @@ func isNil(value interface{}) bool {
 	return false
 }
 
-type Doc struct {
-	Imports          []string
-	GeneratedMethods []string
-	PackageInfo      *PackageInfo
-	CurrentType      *TypeInfo
-	Main             TypeWithRoot
-	SelectedType     string                 // from flags
-	OutputFile       string                 // from flags
-	TemplateFile     string                 // from flags
-	PeerName         string                 // from flags
-	TestMode         bool                   // from flags
-	keeper           map[string]interface{} // template keeps data in here, key-value, as they need
-}
-
 type TypeWithRoot struct {
-	T *TypeInfo
-	D *Doc
+	T *TypeInfo // like "current" type
+	D *Doc      // required as "parent" in recursion templates
 }
 
-func (d *Doc) SetSelectedTypeNotNil() bool {
-	if d.CurrentType == nil {
-		log.Println("Selected type is nil")
-		return false
-	}
-	if *debugPrint {
-		log.Println("SetSelectedTypeNotNil " + d.CurrentType.Kind)
-	}
-	return true
+type Doc struct {
+	Imports      []string
+	PackageInfo  *PackageInfo
+	Main         TypeWithRoot
+	SelectedType string                 // from flags
+	OutputFile   string                 // from flags
+	TemplateFile string                 // from flags
+	PeerName     string                 // from flags
+	TestMode     bool                   // from flags
+	keeper       map[string]interface{} // template authors keeps data in here, key-value, as they need
+	tmpl         *template.Template     // reference to template, so we don't pass it as parameter
+	templateName string                 // set by template, used in GenerateAndStore and ListStored
 }
 
-func (d *Doc) SetSelectedTypeInfo(newType *TypeInfo) *TypeInfo {
-	if newType == nil {
-		log.Println("error : new type is nil")
-		return nil
-	}
-	d.SelectedType = newType.Kind
-	d.CurrentType = d.PackageInfo.Types.Extract(newType.Kind)
-	if d.CurrentType == nil {
-		log.Printf("%q not found while setting selected type", newType.Kind)
-	}
-	if *debugPrint {
-		log.Println("Select type " + d.CurrentType.Kind)
-	}
-	return d.CurrentType
-}
-
-func (d *Doc) SetSelectedType(newType string) string {
-	d.SelectedType = newType
-	d.CurrentType = d.PackageInfo.Types.Extract(newType)
-	if d.CurrentType == nil {
-		log.Printf("%q not found while setting selected type", newType)
-		return ""
-	}
-	if *debugPrint {
-		log.Println("SetSelectedType " + d.CurrentType.Kind)
-	}
-	return ""
-}
-
-func (d *Doc) GetStructByKey(key string) *TypeInfo {
+func (d *Doc) StructByKey(key string) *TypeInfo {
 	return d.PackageInfo.Types.Extract(key)
 }
 
@@ -267,9 +231,71 @@ func (d *Doc) AddToImports(imp string) string {
 	return ""
 }
 
-func (d *Doc) AddToGeneratedMethods(methodName string) string {
-	d.GeneratedMethods = append(d.GeneratedMethods, methodName)
-	return ""
+func (d *Doc) Declare(name string) bool {
+	if d.Main.T == nil {
+		log.Fatalf("error : main type is not set - impossible...")
+	}
+	if name == "" {
+		log.Fatalf("error : cannot declare empty template name (e.g.`Stringer`)")
+	}
+	d.templateName = name
+	d.keeper[name+d.Main.T.Name] = "" // set it to empty in case of self reference, so template will exit
+	return true
+}
+
+func (d *Doc) GenerateAndStore(kind string) bool {
+	entity := d.templateName + kind
+	if *debugPrint {
+		log.Printf("Processing %q %q ", d.templateName, kind)
+	}
+	// already has it
+	if _, has := d.keeper[entity]; has {
+		if *debugPrint {
+			log.Printf("%q already stored.", kind)
+		}
+		return false
+	}
+	var buf strings.Builder
+	nt := d.PackageInfo.Types.Extract(kind)
+	if nt == nil {
+		if *debugPrint {
+			log.Printf("%q doesn't exist.", kind)
+		}
+		return false
+	}
+
+	err := d.tmpl.ExecuteTemplate(&buf, d.templateName, TypeWithRoot{D: d, T: nt})
+	if err != nil {
+		if *debugPrint {
+			log.Printf("generate and store error : %v", err)
+		}
+		return false
+	}
+	d.keeper[entity] = buf.String()
+	if *debugPrint {
+		log.Printf("%q stored.", kind)
+	}
+	return true
+}
+
+func (d *Doc) ListStored() []string {
+	var result []string
+	for key, value := range d.keeper {
+		if strings.HasPrefix(key, d.templateName) {
+			if r, ok := value.(string); ok {
+				// len(0) is default template for main (
+				if len(r) > 0 {
+					result = append(result, r)
+				}
+			} else {
+				// if it's not a string, we're ignoring it
+				if *debugPrint {
+					log.Printf("%q has prefix %q but it's not a string and we're ignoring it", key, d.templateName)
+				}
+			}
+		}
+	}
+	return result
 }
 
 func (d *Doc) Header() string {
@@ -375,38 +401,19 @@ func main() {
 		doc.Main = TypeWithRoot{D: &doc, T: packageInfo.Types.Extract(*typeName)}
 
 		tmpl, err = loadTemplate(templatePath, template.FuncMap{
+			//"toJsonName":    swag.ToJSONName, // TODO : import all, but make it field functionality
 			"in":            contains,
 			"empty":         empty,
 			"nil":           isNil,
 			"lowerInitial":  lowerInitial,
 			"capitalize":    capitalize,
 			"templateGoStr": templateGoStr,
+			"contains":      strings.Contains,
 			"trim":          strings.TrimSpace,
 			"hasPrefix":     strings.HasPrefix,
-			"toJsonName":    swag.ToJSONName, // TODO : import all, but make it field functionality
-			"sort":          SortFields,      // TODO : test sort fields (fields implements the interface)
+			"sort":          SortFields, // allows fields sorting (tested in Stringer)
 			"dump": func(a ...interface{}) string {
 				return spew.Sdump(a...)
-			},
-			"includeAndStore": func(name, kind, storeName string) bool {
-				// already has it
-				if _, has := doc.keeper[storeName]; has {
-					log.Printf("%q already stored.", storeName)
-					return false
-				}
-				doc.keeper[storeName] = "processing" // entering here again
-				var buf strings.Builder
-				err := tmpl.ExecuteTemplate(&buf, name, TypeWithRoot{D: &doc, T: doc.PackageInfo.Types.Extract(kind)})
-				if err != nil {
-					log.Printf("Include Error : %v", err)
-					return false
-				}
-				result := buf.String()
-				doc.keeper[storeName] = result
-				if *debugPrint {
-					log.Printf("%q stored.", storeName)
-				}
-				return true
 			},
 			"concat": func(a, b string) string {
 				return a + b
@@ -415,7 +422,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-
+		doc.tmpl = tmpl
 		buf := bytes.Buffer{}
 		if err := tmpl.Execute(&buf, &doc); err != nil {
 			log.Fatalf("failed to parse template %s: %s\nPartial result:\n%s", *templateFile, err, buf.String())

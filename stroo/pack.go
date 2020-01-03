@@ -73,10 +73,10 @@ func (pkg *PackageInfo) FieldLookupAndFill(named string, info *FieldInfo) types.
 	for key, value := range pkg.TypesInfo.Defs {
 		if key.Name == named {
 			info.Kind = value.Name()
-			switch ptrType := value.Type().Underlying().(type) {
+			switch underType := value.Type().Underlying().(type) {
 			case *types.Pointer:
 				info.IsPointer = true
-				switch underPtr := ptrType.Elem().Underlying().(type) {
+				switch underPtr := underType.Elem().Underlying().(type) {
 				default:
 					log.Fatalf("pointer lookup : don't know what to do with : %#v", underPtr)
 				case *types.Struct:
@@ -102,16 +102,116 @@ func (pkg *PackageInfo) FieldLookupAndFill(named string, info *FieldInfo) types.
 	return nil
 }
 
-func (pkg *PackageInfo) ReadIdent(ident *ast.Ident, info *FieldInfo, comment *ast.CommentGroup) {
-	if info == nil {
-		// TODO : comment + test
-		info = &FieldInfo{Name: pkg.TypesInfo.Defs[ident].Name(), Comment: comment}
-		if pkg.PrintDebug {
-			log.Printf("Self Adding %q", info.Name)
+func (pkg *PackageInfo) DirectIdent(ident *ast.Ident, comment *ast.CommentGroup) {
+	newInfo := TypeInfo{Comment: comment}
+	found := false
+	switch ident.Name {
+	case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "complex64", "complex128", "string":
+		newInfo.Kind = ident.Name
+		newInfo.Name = ident.Name
+		found = true
+	default:
+		for key, value := range pkg.TypesInfo.Defs {
+			if key.Name == ident.Name {
+				found = true
+				newInfo.Name = value.Name()
+				switch underType := value.Type().Underlying().(type) {
+				case *types.Pointer:
+					newInfo.IsPointer = true
+					switch underPtr := underType.Elem().Underlying().(type) {
+					default:
+						log.Fatalf("pointer lookup : don't know what to do with : %#v", underPtr)
+					case *types.Slice:
+						newInfo.IsArray = true
+					}
+				case *types.Slice:
+					newInfo.IsArray = true
+				default:
+					log.Fatalf("lookup unknown %q -> exported %t; type %#v; package= %v; id=%q", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id())
+				}
+				if pkg.PrintDebug {
+					log.Printf("Self adding : %#v", newInfo)
+				}
+				break
+			}
 		}
-		panic("not implemented")
 	}
 
+	if found {
+		pkg.Types = append(pkg.Types, &newInfo)
+	}
+	if pkg.PrintDebug {
+		log.Printf("%q not found in TypesInfo.Defs", ident.Name)
+	}
+}
+
+func (pkg *PackageInfo) DirectSelector(sel *ast.SelectorExpr, comment *ast.CommentGroup) {
+	if ident, ok := sel.X.(*ast.Ident); ok {
+		newInfo := TypeInfo{Comment: comment}
+		newInfo.Package = ident.Name
+		newInfo.Kind = sel.Sel.Name
+		newInfo.Name = sel.Sel.Name
+		pkg.Types = append(pkg.Types, &newInfo)
+
+	}
+}
+
+func (pkg *PackageInfo) DirectPointer(ptr *ast.StarExpr, comment *ast.CommentGroup) {
+	newInfo := TypeInfo{Comment: comment}
+	newInfo.IsPointer = true
+	switch ptrType := ptr.X.(type) {
+	case *ast.Ident:
+
+		found := false
+		switch ptrType.Name {
+		case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "complex64", "complex128", "string":
+			newInfo.Kind = ptrType.Name
+			newInfo.Name = ptrType.Name
+			found = true
+		default:
+			for key, value := range pkg.TypesInfo.Defs {
+				if key.Name == ptrType.Name {
+					found = true
+					newInfo.Name = value.Name()
+					switch underType := value.Type().Underlying().(type) {
+					case *types.Pointer:
+						newInfo.IsPointer = true
+						switch underPtr := underType.Elem().Underlying().(type) {
+						default:
+							log.Fatalf("pointer lookup : don't know what to do with : %#v", underPtr)
+						case *types.Slice:
+							newInfo.IsArray = true
+						}
+					case *types.Slice:
+						newInfo.IsArray = true
+					default:
+						log.Fatalf("lookup unknown %q -> exported %t; type %#v; package= %v; id=%q", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id())
+					}
+					if pkg.PrintDebug {
+						log.Printf("Self adding : %#v", newInfo)
+					}
+					break
+				}
+			}
+		}
+		if found {
+			pkg.Types = append(pkg.Types, &newInfo)
+		}
+	case *ast.SelectorExpr:
+		// fields from other packages
+		if ident, ok := ptrType.X.(*ast.Ident); ok {
+			newInfo.Package = ident.Name
+			newInfo.Kind = ptrType.Sel.Name
+			newInfo.Name = ptrType.Sel.Name
+			pkg.Types = append(pkg.Types, &newInfo)
+		}
+	default:
+		log.Printf("unknown pointer type %T", ptrType)
+	}
+
+}
+
+func (pkg *PackageInfo) ReadIdent(ident *ast.Ident, info *FieldInfo, comment *ast.CommentGroup) {
 	switch ident.Name {
 	case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "complex64", "complex128", "string":
 		info.IsBasic = true
@@ -134,7 +234,6 @@ func (pkg *PackageInfo) ReadIdent(ident *ast.Ident, info *FieldInfo, comment *as
 			log.Printf("[%q] kind = %q pointer = %t basic = %t struct = %t array = %t package %q", info.Name, info.Kind, info.IsPointer, info.IsBasic, info.IsStruct, info.IsArray, info.Package)
 		}
 	}
-
 }
 
 func (pkg *PackageInfo) ReadSelector(sel *ast.SelectorExpr, info *FieldInfo, comment *ast.CommentGroup) {
@@ -189,7 +288,8 @@ func (pkg *PackageInfo) ReadStructInfo(astSpec *ast.TypeSpec, comment *ast.Comme
 	for _, field := range astSpec.Type.(*ast.StructType).Fields.List {
 		if len(field.Names) == 0 {
 			// embedded field
-			embeddedField := FieldInfo{IsEmbedded: true}
+			// TODO : note that we need a checker `types.Check` to establish that the field is exported. Forcing exported default
+			embeddedField := FieldInfo{IsEmbedded: true, IsExported: true}
 			switch fieldType := field.Type.(type) {
 			case *ast.StarExpr:
 				if err := pkg.ReadPointer(fieldType, &embeddedField, nil); err != nil {
