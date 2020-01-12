@@ -34,7 +34,7 @@ import (
 					{{- if .IsExported }}
 
 						{{- if .IsImported -}}
-
+							// IMPORTED `{{.Package}}.{{.Name}}` `{{.PackagePath}}` and {{.IsBasic}} {{.IsStruct}} {{.IsArray}}
                         	{{ $.D.AddToImports .PackagePath }}
                         {{- end -}}
 
@@ -60,7 +60,7 @@ import (
 										{{end}}
 										sb.WriteString("{{$field.Name}}:\n"+fmt.Sprintf("%s", st.{{$fieldName}}.{{$field.Name}}))
 										{{- if .IsImported -}}
-
+											// EMBEDDED IMPORTED `{{.Package}}.{{.Name}}` `{{.PackagePath}}` and {{.IsBasic}} {{.IsStruct}} {{.IsArray}}
 											{{ $.D.AddToImports .PackagePath }}
 										{{- end -}}
 										{{- if $field.IsPointer }}

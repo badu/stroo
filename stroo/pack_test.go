@@ -1,6 +1,7 @@
 package stroo_test
 
 import (
+	"github.com/badu/stroo/dbg_prn"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -8,7 +9,6 @@ import (
 	"testing"
 
 	. "github.com/badu/stroo/stroo"
-	"github.com/r3labs/diff"
 )
 
 type testCase struct {
@@ -494,32 +494,32 @@ func TestAllDefinitions(t *testing.T) {
 			if cCase.outputName == "" {
 				t.Skipf("%d. output is no-name", idx)
 			}
-			def := result.Types.Extract(cCase.outputName)
-			if def == nil {
-				t.Fatalf("Definition not found looking for %q", cCase.outputName)
-			}
-			expected := NewDebugger(&result.Types)
+			expected := ""
 			var typed *TypeInfo
 			ok := false
 			if typed, ok = cCase.output.(*TypeInfo); ok {
-				typed.Debug(expected)
+				expected = dbg_prn.SPrint(typed)
 			} else {
 				t.Logf("%d. Expecting error", idx)
 				e, ok := cCase.output.(string)
 				if !ok {
 					t.Fatalf("cCase.output should be string or *TypeInfo! it's : %T", cCase.output)
 				}
-				expected.WriteString(e)
+				expected = dbg_prn.SPrint(e)
 			}
-			received := NewDebugger(&result.Types)
-			def.Debug(received)
+			received := ""
+			def := result.Types.Extract(cCase.outputName)
+			if def == nil {
+				t.Fatalf("Definition not found looking for %q", cCase.outputName)
+			}
+			received = dbg_prn.SPrint(def)
 			// because circular references, we cannot use reflect.DeepEqual
-			if received.String() != expected.String() {
-				changelog, _ := diff.Diff(typed, def)
-				t.Logf("%#v", changelog)
-				t.Fatalf("%d. output error: GOT:\n%s\nWANT:\n%s", idx, received.String(), expected.String())
+			if received != expected {
+				//			changelog, _ := diff.Diff(typed, def)
+				//			t.Logf("%#v", changelog)
+				t.Fatalf("%d. output error: GOT:\n%s\nWANT:\n%s", idx, received, expected)
 			} else {
-				//t.Logf("Result of %d:\n%s\nSHOULD BE:\n\n%s\n", idx, received.String(), expected.String())
+				t.Logf("Result of %d:\n%s\nSHOULD BE:\n\n%s\n", idx, received, expected)
 			}
 		} else {
 			t.Logf("%d. skipped - expecting nothing", idx)
@@ -589,32 +589,32 @@ func TestOneDefinition(t *testing.T) {
 		if cCase.outputName == "" {
 			t.Skipf("%d. output is no-name", idx)
 		}
-		expected := NewDebugger(&result.Types, 0, 1)
+		expected := ""
 		var typed *TypeInfo
 		ok := false
 		if typed, ok = cCase.output.(*TypeInfo); ok {
-			typed.Debug(expected)
+			expected = dbg_prn.SPrint(typed)
 		} else {
 			t.Logf("%d. Expecting error", idx)
 			e, ok := cCase.output.(string)
 			if !ok {
 				t.Fatalf("cCase.output should be string or *TypeInfo! it's : %T", cCase.output)
 			}
-			expected.WriteString(e)
+			expected = dbg_prn.SPrint(e)
 		}
-		received := NewDebugger(&result.Types, 0, 2)
+		received := ""
 		def := result.Types.Extract(cCase.outputName)
 		if def == nil {
 			t.Fatalf("Definition not found looking for %q", cCase.outputName)
 		}
-		def.Debug(received)
+		received = dbg_prn.SPrint(def)
 		// because circular references, we cannot use reflect.DeepEqual
-		if received.String() != expected.String() {
+		if received != expected {
 			//			changelog, _ := diff.Diff(typed, def)
 			//			t.Logf("%#v", changelog)
-			t.Fatalf("%d. output error: GOT:\n%s\nWANT:\n%s", idx, received.String(), expected.String())
+			t.Fatalf("%d. output error: GOT:\n%s\nWANT:\n%s", idx, received, expected)
 		} else {
-			t.Logf("Result of %d:\n%s\nSHOULD BE:\n\n%s\n", idx, received.String(), expected.String())
+			t.Logf("Result of %d:\n%s\nSHOULD BE:\n\n%s\n", idx, received, expected)
 		}
 	} else {
 		t.Logf("%d. skipped - expecting nothing", idx)

@@ -2,12 +2,17 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"github.com/badu/stroo/dbg_prn"
 	"go/ast"
 	"go/format"
 	"go/token"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -23,7 +28,9 @@ import (
 
 	. "github.com/badu/stroo/stroo"
 
-	"github.com/davecgh/go-spew/spew"
+	"github.com/fsnotify/fsnotify"
+	"github.com/knadh/stuffbin"
+	"github.com/r3labs/sse"
 )
 
 var mAnalyzer = &codescan.Analyzer{
@@ -109,15 +116,6 @@ func run(pass *codescan.Pass) (interface{}, error) {
 
 	return result, err
 }
-
-var (
-	typeName     = flag.String("type", "", "type that should be processed e.g. SomeJsonPayload")
-	outputFile   = flag.String("output", "", "name of the output file e.g. json_gen.go")
-	templateFile = flag.String("template", "", "name of the template file e.g. ./../templates/")
-	peerStruct   = flag.String("target", "", "name of the peer struct e.g. ./../testdata/pkg/model_b/SomeProtoBufPayload")
-	testMode     = flag.Bool("testmode", false, "is in test mode : just display the result")
-	debugPrint   = flag.Bool("debug", false, "print debugging info")
-)
 
 func loadTemplate(path string, fnMap template.FuncMap) (*template.Template, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -313,6 +311,16 @@ func SortFields(fields Fields) bool {
 	return true
 }
 
+var (
+	typeName     = flag.String("type", "", "type that should be processed e.g. SomeJsonPayload")
+	outputFile   = flag.String("output", "", "name of the output file e.g. json_gen.go")
+	templateFile = flag.String("template", "", "name of the template file e.g. ./../templates/")
+	peerStruct   = flag.String("target", "", "name of the peer struct e.g. ./../testdata/pkg/model_b/SomeProtoBufPayload")
+	testMode     = flag.Bool("testmode", false, "is in test mode : just display the result")
+	debugPrint   = flag.Bool("debug", false, "print debugging info")
+	serve        = flag.Bool("serve", false, "serve the debug version")
+)
+
 func main() {
 	analyzer := &codescan.Analyzer{
 		Name:             "stroo",
@@ -331,7 +339,241 @@ func main() {
 		log.Fatal(err)
 	}
 	analyzers.ParseFlags()
+	if *serve {
+		var initFileWatcher = func(paths []string) (*fsnotify.Watcher, error) {
+			fw, err := fsnotify.NewWatcher()
+			if err != nil {
+				return fw, err
+			}
 
+			files := []string{}
+			// Get all the files which needs to be watched.
+			for _, p := range paths {
+				m, err := filepath.Glob(p)
+				if err != nil {
+					return fw, err
+				}
+				files = append(files, m...)
+			}
+
+			// Watch all template files.
+			for _, f := range files {
+				if err := fw.Add(f); err != nil {
+					return fw, err
+				}
+			}
+			return fw, err
+		}
+		// Initialize file watcher.
+		var paths []string
+		fw, err := initFileWatcher(paths)
+		defer fw.Close()
+		if err != nil {
+			log.Printf("error watching files: %v", err)
+			os.Exit(1)
+		}
+
+		var initSSEServer = func() *sse.Server {
+			server := sse.New()
+			server.CreateStream("messages")
+			go func() {
+				for {
+					select {
+					// Watch for events.
+					case _ = <-fw.Events:
+						log.Printf("files changed")
+						// Send a ping notify frontent about file changes.
+						server.Publish("messages", &sse.Event{
+							Data: []byte("-"),
+						})
+						// Watch for errors.
+					case err := <-fw.Errors:
+						log.Printf("error watching files: %v", err)
+					}
+				}
+			}()
+			return server
+		}
+
+		// Initialize SSE server.
+		server := initSSEServer()
+
+		var initFileSystem = func() (stuffbin.FileSystem, error) {
+			wd, err := os.Getwd()
+			if err != nil {
+				return nil, err
+			}
+			// Read stuffed data from self.
+			fs, err := stuffbin.UnStuff(os.Args[0])
+			if err != nil {
+				if err == stuffbin.ErrNoID {
+					fs, err = stuffbin.NewLocalFS(wd, "./../../serve/index.html:index.html")
+					if err != nil {
+						log.Printf("Working folder : %q\nerror:%v", wd, err)
+						return fs, fmt.Errorf("error falling back to local filesystem: %v", err)
+					}
+				} else {
+					return fs, fmt.Errorf("error reading stuffed binary: %v", err)
+				}
+			}
+			return fs, nil
+		}
+
+		var decodeTemplateData = func(dataRaw []byte) (map[string]interface{}, error) {
+			var data map[string]interface{}
+			err := json.Unmarshal(dataRaw, &data)
+			if err != nil {
+				return data, err
+			}
+			return data, nil
+		}
+
+		type Resp struct {
+			Data  json.RawMessage `json:"data,omitempty"`
+			Error string          `json:"error,omitempty"`
+		}
+
+		var writeJSONResp = func(w http.ResponseWriter, statusCode int, data []byte, e string) {
+			var resp = Resp{
+				Data:  json.RawMessage(data),
+				Error: e,
+			}
+			b, err := json.Marshal(resp)
+			if err != nil {
+				log.Printf("error encoding response: %v, data: %v", err, string(data))
+			}
+			w.WriteHeader(statusCode)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(b)
+		}
+
+		var tmplData map[string]interface{}
+		var handleGetTemplateData = func(w http.ResponseWriter, r *http.Request) {
+			d, err := json.Marshal(tmplData)
+			if err != nil {
+				writeJSONResp(w, http.StatusInternalServerError, nil, fmt.Sprintf("Error reading request body: %v", err))
+			} else {
+				writeJSONResp(w, http.StatusOK, d, "")
+			}
+		}
+
+		var handleUpdateTemplateData = func(w http.ResponseWriter, r *http.Request) {
+			body, err := ioutil.ReadAll(r.Body)
+			if err != nil {
+				writeJSONResp(w, http.StatusBadRequest, nil, fmt.Sprintf("Error reading request body: %v", err))
+				return
+			}
+
+			data, err := decodeTemplateData(body)
+			if err != nil {
+				writeJSONResp(w, http.StatusBadRequest, nil, fmt.Sprintf("Error parsing JSON data: %v", err))
+				return
+			}
+
+			// Update template data.
+			//tmplDataMux.Lock()
+			tmplData = data
+			//tmplDataMux.Unlock()
+
+			// Publish a message to reload.
+			server.Publish("messages", &sse.Event{
+				Data: []byte("-"),
+			})
+
+			writeJSONResp(w, http.StatusOK, nil, "")
+		}
+
+		var handleGetTemplateFields = func(w http.ResponseWriter, r *http.Request) {
+			/**
+			t, err := GetTemplate(tmplPath, baseTmplPaths)
+			if err != nil {
+				writeJSONResp(w, http.StatusInternalServerError, nil, fmt.Sprintf("Error getting template fields: %v", err))
+				return
+			}
+			fields := NodeFields(t)
+			mFields := []string{}
+			for _, f := range fields {
+				if nodeFieldRe.MatchString(f) {
+					mFields = append(mFields, f)
+				}
+			}
+			**/
+			mFields := []string{}
+			b, err := json.Marshal(mFields)
+			if err != nil {
+				writeJSONResp(w, http.StatusInternalServerError, nil, fmt.Sprintf("Error encoding template fields: %v", err))
+				return
+			}
+			writeJSONResp(w, http.StatusOK, b, "")
+		}
+
+		mux := http.NewServeMux()
+		// Initialize file system.
+		fs, err := initFileSystem()
+		if err != nil {
+			log.Printf("error initializing file system: %v", err)
+			os.Exit(1)
+		}
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			f, err := fs.Get("index.html")
+			if err != nil {
+				log.Fatalf("error reading foo.txt: %v", err)
+			}
+			// Write response.
+			w.WriteHeader(http.StatusOK)
+			w.Header().Set("Content-Type", "text/html")
+			w.Write(f.ReadBytes())
+		})
+
+		mux.HandleFunc("/events", server.HTTPHandler)
+
+		// Handler to render template.
+		mux.HandleFunc("/out", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				// Write response.
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			// Compile the template.
+			var err error
+			err = errors.New("not implemented")
+			var b []byte
+			//b, err := gotp.Compile(tmplPath, baseTmplPaths, tmplData)
+			// If error send error as output.
+			if err != nil {
+				b = []byte(fmt.Sprintf("error rendering: %v", err))
+			}
+			// Write response.
+			w.WriteHeader(http.StatusOK)
+			w.Header().Set("Content-Type", "text/html")
+			w.Write(b)
+		})
+
+		mux.HandleFunc("/data", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPut {
+				handleUpdateTemplateData(w, r)
+				return
+			} else if r.Method == http.MethodGet {
+				handleGetTemplateData(w, r)
+			} else {
+				// Write response.
+				w.WriteHeader(http.StatusMethodNotAllowed)
+			}
+		})
+
+		mux.HandleFunc("/fields", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				handleGetTemplateFields(w, r)
+			} else {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+			}
+		})
+
+		// Start server on given port.
+		if err := http.ListenAndServe("localhost:8080", mux); err != nil {
+			panic(err)
+		}
+	}
 	var (
 		tmpl         *template.Template
 		templatePath string
@@ -355,6 +597,28 @@ func main() {
 	args := flag.Args()
 	if *templateFile == "" {
 		log.Fatal("Error : you have to provide a template file (with relative path)")
+	}
+	tmpl, err = loadTemplate(templatePath, template.FuncMap{
+		//"toJsonName":    swag.ToJSONName, // TODO : import all, but make it field functionality
+		"in":            contains,
+		"empty":         empty,
+		"nil":           isNil,
+		"lowerInitial":  lowerInitial,
+		"capitalize":    capitalize,
+		"templateGoStr": templateGoStr,
+		"contains":      strings.Contains,
+		"trim":          strings.TrimSpace,
+		"hasPrefix":     strings.HasPrefix,
+		"sort":          SortFields, // allows fields sorting (tested in Stringer)
+		"dump": func(a ...interface{}) string {
+			return dbg_prn.SPrint(a...)
+		},
+		"concat": func(a, b string) string {
+			return a + b
+		},
+	})
+	if err != nil {
+		log.Fatal(err)
 	}
 	if *typeName == "" {
 		log.Fatal("Error : you have to provide a main type to be used in the template")
@@ -397,32 +661,12 @@ func main() {
 			TemplateFile: *templateFile,
 			TestMode:     *testMode,
 			keeper:       make(map[string]interface{}),
+			tmpl:         tmpl,
+			Main:         TypeWithRoot{T: packageInfo.Types.Extract(*typeName)},
 		}
-		doc.Main = TypeWithRoot{D: &doc, T: packageInfo.Types.Extract(*typeName)}
 
-		tmpl, err = loadTemplate(templatePath, template.FuncMap{
-			//"toJsonName":    swag.ToJSONName, // TODO : import all, but make it field functionality
-			"in":            contains,
-			"empty":         empty,
-			"nil":           isNil,
-			"lowerInitial":  lowerInitial,
-			"capitalize":    capitalize,
-			"templateGoStr": templateGoStr,
-			"contains":      strings.Contains,
-			"trim":          strings.TrimSpace,
-			"hasPrefix":     strings.HasPrefix,
-			"sort":          SortFields, // allows fields sorting (tested in Stringer)
-			"dump": func(a ...interface{}) string {
-				return spew.Sdump(a...)
-			},
-			"concat": func(a, b string) string {
-				return a + b
-			},
-		})
-		if err != nil {
-			log.Fatal(err)
-		}
-		doc.tmpl = tmpl
+		doc.Main.D = &doc
+
 		buf := bytes.Buffer{}
 		if err := tmpl.Execute(&buf, &doc); err != nil {
 			log.Fatalf("failed to parse template %s: %s\nPartial result:\n%s", *templateFile, err, buf.String())

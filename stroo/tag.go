@@ -102,41 +102,6 @@ func (t *Tag) Value() string {
 	return t.Name
 }
 
-// cannot implement Stringer due to tests
-func (t Tag) Debug(sdb *Debugger) {
-	tabs := strings.Repeat("\t", sdb.tabs)
-	sdb.WriteString(tabs + "&Tag{")
-	sdb.WriteString("Key:\"" + t.Key + "\",")
-	sdb.WriteString("Name:\"" + t.Name + "\"")
-	opts := ""
-	for idx, option := range t.Options {
-		if idx > 0 {
-			opts += ","
-		}
-		opts += "\"" + option + "\""
-	}
-	if len(opts) > 0 {
-		sdb.WriteString(",Options:[]string{" + opts + "}")
-	}
-	sdb.WriteString("},\n")
-}
-
-// cannot implement Stringer due to tests
-func (t Tags) Debug(sdb *Debugger) {
-	tabs := strings.Repeat("\t", sdb.tabs)
-	if len(t) > 0 {
-		sdb.WriteString(tabs + "Tags:&Tags{\n")
-	}
-	sdb.tabs++
-	for _, tag := range t {
-		tag.Debug(sdb)
-	}
-	sdb.tabs--
-	if len(t) > 0 {
-		sdb.WriteString(tabs + "},\n")
-	}
-}
-
 func (t Tags) Get(key string) (*Tag, error) {
 	for _, tag := range t {
 		if tag.Key == key {

@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"go/types"
 	"log"
-	"strings"
 )
 
 var (
@@ -39,6 +38,7 @@ func (pkg *PackageInfo) ReadArrayInfo(astSpec *ast.TypeSpec, comment *ast.Commen
 	} else {
 		log.Fatalf("%q not found in TypesInfo.Defs", astSpec.Name)
 	}
+	// TODO : take comments from both astSpec.Comment.Text(), comment.Text()
 	switch elType := astSpec.Type.(*ast.ArrayType).Elt.(type) {
 	case *ast.Ident:
 		info.Kind = elType.Name
@@ -412,14 +412,4 @@ func (pkg *PackageInfo) ReadVariablesInfo(spec ast.Spec, valueSpec *ast.ValueSpe
 		}
 		pkg.Vars = append(pkg.Vars, info)
 	}
-}
-
-// cannot implement Stringer due to tests
-func (pkg PackageInfo) Debug(sdb *Debugger) {
-	tabs := strings.Repeat("\t", sdb.tabs)
-	sdb.WriteString(tabs + "Package : \"" + pkg.Name + "\"\n")
-	pkg.Interfaces.Debug(sdb)
-	pkg.Types.Debug(sdb)
-	pkg.Functions.Debug(sdb)
-	pkg.Vars.Debug(sdb)
 }

@@ -25,7 +25,8 @@ type ImagesPtr *string         // pointer to string alias
 type Timer time.Ticker         // external alias
 type Timer2 *time.Ticker       // external alias
 type ProductImages []*ImageURL // slice of pointer to alias
-type Times []*time.Time        // slice of pointer to external
+// times comment @time.Time
+type Times []*time.Time // slice of pointer to external
 
 type UserData struct {
 	Name          string    `json:"buyer"`
