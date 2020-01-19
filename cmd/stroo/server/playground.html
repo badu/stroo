@@ -1,0 +1,202 @@
+<playground>
+	<style>
+		.template {
+			display: flex;
+			flex: 1 100%;
+			flex-direction: column;
+		}
+		.box {
+			display: flex;
+			flex: 1 100%;
+		}
+		.preview {
+			display: flex;
+			flex: 1 100%;
+			flex-direction: column;
+			margin-left: 20px;
+		}
+		.message {
+			flex-shrink: 0;
+		}
+		.source {
+			margin-bottom: 10px;
+		}
+		.menu {
+			flex-shrink: 0;
+		}
+		.ui.top.menu {
+			margin: 0px;
+		}
+		.ui.bottom.tab.active {
+			display: flex;
+			flex: 1 100%;
+			margin: 0px;
+		}
+		.tab-body {
+			display: flex;
+			flex: 1 100%;
+			flex-direction: column;
+			align-items: stretch;
+			align-content: stretch;
+			margin-top: 10px;
+		}
+		iframe {
+			border: 0;
+			display: flex;
+			flex: 1;
+		}
+	</style>
+	<div class='preview'>
+		<div class='ui message' if={state.hasSourceMessage}>{state.sourceMessage}</div>
+		<div class="ui top secondary pointing menu">
+			<a class="item" data-tab="source">Source</a>
+			<a class="active item" data-tab="preview">Preview</a>
+		</div>
+		<div class="ui bottom tab" data-tab="source">
+			<div class='tab-body'>
+				<p>Source code will be used to render the preview - must be valid Go code</p>
+				<codetextarea id="source"
+						 placeholder="Go source code"
+						 source={state.sourceCode}
+						 change={render}
+						 busy={!state.sourceLoaded}
+						 class='box'>
+				</codetextarea>
+			</div>
+		</div>
+		<div class="ui bottom tab active" data-tab="preview">
+			<div class='tab-body'>
+				<codetextarea id="preview"
+						 placeholder="The preview will render here once you have entered some source, and a template."
+						 source={state.previewCode}
+						 readonly='true'
+						 busy={state.previewBusy}
+						 class='box'></codetextarea>
+			</div>
+		</div>
+	</div>
+	<div class='template' style="border:3px solid blue">
+		<div class='ui message' if={state.hasTemplateMessage}>{state.templateMessage}</div>
+		<div class="ui top secondary pointing menu">
+			<a class="active item" data-tab="template">Template</a>
+		</div>
+		<div class="ui bottom tab active" data-tab="template">
+			<div class='tab-body'>
+				<p>Go Template:</p>
+				<codetextarea id="template"
+						 placeholder='Template'
+						 source={state.templateCode}
+						 change={render}
+						 busy={!state.templateLoaded}
+						 class='box'>
+				</codetextarea>
+			</div>
+		</div>
+	</div>
+
+	<script>
+	export default {
+		onBeforeMount(props, state) {
+			// initial state
+			this.state = {
+				hasTemplateMessage:true,
+				templateMessage: "please wait, loading template...",
+				templateCode:"",
+				templateLoaded:false,
+				hasSourceMessage:true,
+				sourceMessage:"please wait, loading source...",
+				sourceCode:"",
+				sourceLoaded:false,
+				previewCode:"Nothing to preview",
+				previewBusy:true,
+				firstPreview:true,
+				jsonPayload:{template:"",source:""}
+			}
+		},
+		onUpdated(){
+			if (!this.state.firstPreview){
+				return
+			}
+			if (!this.state.templateLoaded || !this.state.sourceLoaded){
+				return
+			}
+			this.state.firstPreview = false
+			this.render("","")
+		},
+		onMounted() {
+			this.menu = $('.menu .item', this.root)
+			this.menu.tab()
+
+			this.linkmenu = $('.link.menu .item', this.root)
+
+			this.items = this.linkmenu.click(function(e){
+				console.log("clicked item", e)
+				this.items.removeClass('active')
+				$(e.target).addClass('active')
+			}.bind(this))
+
+			$.ajax({
+				type: "get",
+				url: "/example-template",
+				success: function(template){
+					this.state.templateCode = template
+					this.state.jsonPayload.template = template
+					this.state.templateMessage = ""
+					this.state.hasTemplateMessage = false
+					this.state.templateLoaded = true
+				}.bind(this),
+				error: function(res){
+					this.state.templateMessage = res
+				}.bind(this),
+				complete: function(){
+					console.log("template is here", this.state.templateCode)
+					this.update()
+				}.bind(this)
+			})
+
+			$.ajax({
+				type: "get",
+				url: "/example-source",
+				success: function(code){
+					this.state.hasSourceMessage = false
+					this.state.sourceMessage = ""
+					this.state.sourceCode = code
+					this.state.jsonPayload.source = code
+					this.state.sourceLoaded = true
+				}.bind(this),
+				error: function(res){
+					this.state.sourceMessage = res
+				}.bind(this),
+				complete: function(){
+					console.log("source is here", this.state.sourceCode)
+					this.update()
+				}.bind(this)
+			})
+		},
+
+		render(id, newsource) {
+			if (id === "template"){
+				this.state.jsonPayload.template = newsource
+			}else if (id === "source"){
+				this.state.jsonPayload.source = newsource
+			}
+
+			$.ajax({
+				type: 'post',
+				url: "/stroo-it",
+				data: JSON.stringify(this.state.jsonPayload),
+				success: function(data){
+					this.state.previewCode = data.output
+					this.state.previewBusy = false
+				}.bind(this),
+				error: function(res){
+					console.log("preview error", res.responseJSON)
+				}.bind(this),
+				complete: function(){
+					this.update()
+				}.bind(this)
+			})
+		}
+	}
+	</script>
+</playground>

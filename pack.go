@@ -58,6 +58,7 @@ func (pkg *PackageInfo) ReadArrayInfo(astSpec *ast.TypeSpec, comment *ast.Commen
 		// fields from other packages
 		if ident, ok := elType.X.(*ast.Ident); ok {
 			info.Kind = ident.Name + "." + elType.Sel.Name
+			//TODO : if dotindex := strings.LastIndex(nameStr, "."); dotindex >= 0 {
 		}
 	default:
 		return fmt.Errorf(ErrNotImplemented, elType, info.Name)

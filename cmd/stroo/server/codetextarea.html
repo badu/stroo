@@ -1,0 +1,75 @@
+<codetextarea>
+	<style>
+		.wrapper {
+			display: flex;
+			flex: 1 100%;
+			flex-direction: column;
+		}
+		.buttons {
+			flex-shrink: 0;
+		}
+		.wrapper textarea {
+			flex-grow: 1;
+		}
+		.wrapper .busy {
+			flex-grow: 1;
+		}
+		.codeTextArea {
+			min-height: 1em !important;
+			max-height: unset  !important;
+			font-family: monospace;
+			resize: none !important;
+			border: none !important;
+			top: -15px !important;
+			background-color: #FFD !important;
+		}
+		.codeTextArea[readonly="readonly"] {
+			background-color: #eee !important;
+		}
+	</style>
+	<div class='wrapper'>
+		<div class='busy ui basic segment' style="border:3px solid red" if={state.busy}>
+			<div class="ui active loader"></div>
+			busy={state.busy}
+			placeholder={state.placeHolder}
+			readonly={state.readonly}
+		</div>
+		<textarea class='codeTextArea'
+				  show={!state.busy}
+				  placeholder={state.placeHolder}
+				  value={state.source}
+				  readonly={state.readonly}
+				  onkeyup={onKeyup}>
+		</textarea>
+	</div>
+	<script>
+	export default {
+		onBeforeMount(props, state) {
+			// initial state
+			this.state = {
+				readonly:props.readonly,
+				busy:props.busy,
+				placeHolder:props.placeholder,
+				source:props.source,
+				currentSource:""
+			}
+		},
+		onBeforeUpdate(){
+			this.state = {
+				readonly:this.props.readonly,
+				busy:this.props.busy,
+				placeHolder:this.props.placeholder,
+				source:this.props.source
+			}
+		},
+		onKeyup(ev) {
+			this.currentSource = ev.target.value
+			clearTimeout(this.state.cacheTimeout)
+			this.state.cacheTimeout = setTimeout(this.dispatch, 500)
+		},
+		dispatch() {
+			this.props.change(this.props.id, this.currentSource)
+		}
+	}
+	</script>
+</codetextarea>
