@@ -8,14 +8,23 @@ import (
 func main() {
 	command := Prepare()
 	if command.Serve {
-		StartPlayground()
+		StartPlayground(command)
 		return
 	}
 	command.Check()
-	command.Print()
-	command.Path = "."
-	if err := command.Do(); err != nil {
-		log.Fatalf("error analysing : %v", err)
+	log.Printf("received params : %s\n", command.Print(true))
+	if loaded, err := command.Load("."); err != nil {
+		log.Fatalf("error loading : %v", err)
+	} else {
+		if err := command.Analyse(loaded); err != nil {
+			log.Fatalf("error analysing : %v", err)
+		}
 	}
-	log.Println("done.")
+	if err := command.Generate(); err != nil {
+		log.Fatalf("error generating : %v", err)
+	}
+	if command.TestMode {
+		log.Printf("%s\n", command.Out.String())
+		log.Println("file not written because test mode is set")
+	}
 }

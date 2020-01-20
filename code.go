@@ -1,11 +1,8 @@
 package stroo
 
 import (
-	"flag"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,29 +65,39 @@ func isNil(value interface{}) bool {
 	return false
 }
 
+func SortFields(fields Fields) bool {
+	sort.Sort(fields)
+	return true
+}
+
 type TypeWithRoot struct {
 	T *TypeInfo // like "current" type
 	D *Code     // required as "parent" in recursion templates
 }
 
 type Code struct {
+	CodeConfig
 	Imports      []string
 	PackageInfo  *PackageInfo
 	Main         TypeWithRoot
-	SelectedType string                 // from flags
-	OutputFile   string                 // from flags
-	TemplateFile string                 // from flags
-	PeerName     string                 // from flags
-	TestMode     bool                   // from flags
 	keeper       map[string]interface{} // template authors keeps data in here, key-value, as they need
 	tmpl         *template.Template     // reference to template, so we don't pass it as parameter
 	templateName string                 // set by template, used in GenerateAndStore and ListStored
-	debugPrint   bool
 }
 
-func (c *Code) StructByKey(key string) *TypeInfo {
-	return c.PackageInfo.Types.Extract(key)
-}
+// getters for config - to be accessible from template
+func (c *Code) SelectedType() string     { return c.CodeConfig.SelectedType }
+func (c *Code) TestMode() bool           { return c.CodeConfig.TestMode }
+func (c *Code) DebugPrint() bool         { return c.CodeConfig.DebugPrint }
+func (c *Code) Serve() bool              { return c.CodeConfig.Serve }
+func (c *Code) TemplateFile() string     { return c.CodeConfig.TemplateFile }
+func (c *Code) OutputFile() string       { return c.CodeConfig.OutputFile }
+func (c *Code) SelectedPeerType() string { return c.CodeConfig.SelectedPeerType }
+
+// gets a struct declaration by it's name
+func (c *Code) StructByKey(key string) *TypeInfo { return c.PackageInfo.Types.Extract(key) }
+func (c *Code) Tmpl() *template.Template         { return c.tmpl }
+func (c *Code) Keeper() map[string]interface{}   { return c.keeper }
 
 // returns true if the key exist and will overwrite
 func (c *Code) Store(key string, value interface{}) bool {
@@ -106,14 +113,10 @@ func (c *Code) Retrieve(key string) interface{} {
 
 func (c *Code) HasInStore(key string) bool {
 	_, has := c.keeper[key]
-	if c.debugPrint {
+	if c.CodeConfig.DebugPrint {
 		log.Printf("Has in store %q = %t", key, has)
 	}
 	return has
-}
-
-func (c *Code) Keeper() map[string]interface{} {
-	return c.keeper
 }
 
 func (c *Code) AddToImports(imp string) string {
@@ -135,12 +138,12 @@ func (c *Code) Declare(name string) bool {
 
 func (c *Code) GenerateAndStore(kind string) bool {
 	entity := c.templateName + kind
-	if c.debugPrint {
+	if c.CodeConfig.DebugPrint {
 		log.Printf("Processing %q %q ", c.templateName, kind)
 	}
 	// already has it
 	if _, has := c.keeper[entity]; has {
-		if c.debugPrint {
+		if c.CodeConfig.DebugPrint {
 			log.Printf("%q already stored.", kind)
 		}
 		return false
@@ -148,7 +151,7 @@ func (c *Code) GenerateAndStore(kind string) bool {
 	var buf strings.Builder
 	nt := c.PackageInfo.Types.Extract(kind)
 	if nt == nil {
-		if c.debugPrint {
+		if c.CodeConfig.DebugPrint {
 			log.Printf("%q doesn't exist.", kind)
 		}
 		return false
@@ -156,13 +159,13 @@ func (c *Code) GenerateAndStore(kind string) bool {
 
 	err := c.tmpl.ExecuteTemplate(&buf, c.templateName, TypeWithRoot{D: c, T: nt})
 	if err != nil {
-		if c.debugPrint {
+		if c.CodeConfig.DebugPrint {
 			log.Printf("generate and store error : %v", err)
 		}
 		return false
 	}
 	c.keeper[entity] = buf.String()
-	if c.debugPrint {
+	if c.CodeConfig.DebugPrint {
 		log.Printf("%q stored.", kind)
 	}
 	return true
@@ -179,7 +182,7 @@ func (c *Code) ListStored() []string {
 				}
 			} else {
 				// if it's not a string, we're ignoring it
-				if c.debugPrint {
+				if c.CodeConfig.DebugPrint {
 					log.Printf("%q has prefix %q but it's not a string and we're ignoring it", key, c.templateName)
 				}
 			}
@@ -188,28 +191,8 @@ func (c *Code) ListStored() []string {
 	return result
 }
 
-func (c *Code) Header() string {
-	flags := ""
-	flag.CommandLine.VisitAll(func(f *flag.Flag) {
-		flags += "-" + f.Name + "=" + f.Value.String() + " "
-	})
+func (c *Code) Header(flagValues string) string {
 	return fmt.Sprintf("// Generated on %v by Stroo [https://github.com/badu/stroo]\n"+
 		"// Do NOT bother with altering it by hand : use the tool\n"+
-		"// Arguments at the time of generation:\n//\t%s", time.Now().Format("Mon Jan 2 15:04:05"), flags)
-}
-
-func (c *Code) Tmpl() *template.Template {
-	return c.tmpl
-}
-
-func SortFields(fields Fields) bool {
-	sort.Sort(fields)
-	return true
-}
-
-func loadTemplate(path string, fnMap template.FuncMap) (*template.Template, error) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, fmt.Errorf("error : %v ; path = %q", err, path)
-	}
-	return template.Must(template.New(filepath.Base(path)).Funcs(fnMap).ParseFiles(path)), nil
+		"// Arguments at the time of generation:\n//\t%s", time.Now().Format("Mon Jan 2 15:04:05"), flagValues)
 }

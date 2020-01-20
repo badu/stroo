@@ -1,5 +1,14 @@
 # stroo
 
+Ever got tired of writing a `Stringer` implementation over and over again? Wanted to implement `Marshaler` and `Unmarshaler` for `json` package?
+
+Indeed, there are all sort of tools to generate code, but all of them are forcing you to take their own road. How about working with templates instead?
+Thus you could carry your template around with your project, customizing it and having no worries that the way it is being used would change.
+
+This tool traverses Go AST using the static checker of the [Go Tools](golang.org/x/tools). After traversal, it produces information regarding structs, functions and interfaces that are being declared in the inspected package. That information is exposed to a template that you, the developer, define. In the end, the generated code - using that template - will be written into a file of your choice. 
+
+## How
+
 Having the following declaration:
 
 ```go
@@ -11,13 +20,20 @@ type SomeJsonPayload struct{
 }
 ```
 
-stroo will use the template (relative path in the example `json_marshal.tmpl` and `json_unmarshal.tmpl`) to generate the 
-files indicated as output, in the same package with the struct declaration.
+stroo will use the template (relative path in the example `json_marshal.tmpl` and `json_unmarshal.tmpl`) to generate the files indicated as output, in the same package with the struct declaration.
 
-Currently, this is work in progress - the proof of concept is under heavy construction.
+This repository contains code taken (and modified) from [internal go tools](golang.org/x/tools/go/analysis/internal/checker) because the package is internal and cannot be imported. 
 
-Code scan folder contains code taken (and modified) from [tools](golang.org/x/tools) - static analysis part. Thank you good authors!
+Thank you good authors!
+
+## Install
+
+As usual, install like any other Go tool.
+
+## Playground
+
+Yes, there is a playground to help you build templates.
 
 ### Notes
 
-Store and retrieve from template : templates can store and retrieve key-values by using {{ .Store <key> <value> }} and retrieve them with {{ .Retrieve <key> }} where <key> is a `string` and <value> is `interface{}`.
+Developers can store and retrieve information inside a template : templates can store and retrieve key-values by using `{{ .Store <key> <value> }}` and retrieve them with `{{ .Retrieve <key> }}` where <key> is a `string` and <value> is `interface{}`.

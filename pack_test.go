@@ -1,14 +1,18 @@
 package stroo_test
 
 import (
+	"fmt"
 	"github.com/badu/stroo/dbg_prn"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"go/types"
+	"golang.org/x/tools/go/packages"
+	"io/ioutil"
+	"os"
 	"testing"
 
-	. "github.com/badu/stroo/stroo"
+	. "github.com/badu/stroo"
 )
 
 type testCase struct {
@@ -620,4 +624,97 @@ func TestOneDefinition(t *testing.T) {
 		t.Logf("%d. skipped - expecting nothing", idx)
 	}
 
+}
+
+func TestLoadWithExternal(t *testing.T) {
+	wd, _ := os.Getwd()
+	file1, err := ioutil.ReadFile(wd + "/testdata/pkg/model_a/easy.go")
+	if err != nil {
+		t.Fatalf("error loading source file : %v", err)
+	}
+	file2, err := ioutil.ReadFile(wd + "/testdata/pkg/model_b/model.go")
+	if err != nil {
+		t.Fatalf("error loading second source file : %v", err)
+	}
+
+	tmpProj, err := CreateTempProj([]TemporaryPackage{
+		{
+			Name:  "model_a",
+			Files: map[string]interface{}{"model.go": string(file1)},
+		},
+		{
+			Name:  "model_b",
+			Files: map[string]interface{}{"model.go": string(file2)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Error : %v", err)
+	}
+	defer tmpProj.Cleanup()
+
+	tmpProj.Config.Mode = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedDeps | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax | packages.NeedImports
+
+	// load package
+	thePackages, err := packages.Load(tmpProj.Config, fmt.Sprintf("file=%s", tmpProj.File("model_a", "model.go")))
+	if err != nil {
+		t.Fatalf("error loading : %v", err)
+	}
+	// helper
+	contains := func(imports map[string]*packages.Package, wantImport string) bool {
+		for imp := range imports {
+			if imp == wantImport {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, pkg := range thePackages {
+		if !contains(pkg.Imports, "time") {
+			t.Errorf("expected %s import in %s", "time", pkg.ID)
+		}
+		if !contains(pkg.Imports, "github.com/badu/stroo/testdata/pkg/model_b") {
+			t.Errorf("expected %s import in %s", "github.com/badu/stroo/testdata/pkg/model_b", pkg.ID)
+		}
+	}
+}
+
+func TestLoadWithCommand(t *testing.T) {
+	wd, _ := os.Getwd()
+	file1, err := ioutil.ReadFile(wd + "/testdata/pkg/model_a/easy.go")
+	if err != nil {
+		t.Fatalf("error loading source file : %v", err)
+	}
+	file2, err := ioutil.ReadFile(wd + "/testdata/pkg/model_b/model.go")
+	if err != nil {
+		t.Fatalf("error loading second source file : %v", err)
+	}
+
+	tmpProj, err := CreateTempProj([]TemporaryPackage{
+		{
+			Name:  "model_a",
+			Files: map[string]interface{}{"model.go": string(file1)},
+		},
+		{
+			Name:  "model_b",
+			Files: map[string]interface{}{"model.go": string(file2)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Error : %v", err)
+	}
+	defer tmpProj.Cleanup()
+
+	tmpProj.Config.Mode = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedDeps | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax | packages.NeedImports
+
+	// load package
+	thePackages, err := packages.Load(tmpProj.Config, fmt.Sprintf("file=%s", tmpProj.File("model_a", "model.go")))
+	if err != nil {
+		t.Fatalf("error loading : %v", err)
+	}
+	command := NewCommand(DefaultAnalyzer())
+	if err := command.Analyse(thePackages[0]); err != nil {
+		t.Fatalf("error analyzing package : %v", err)
+	}
+	t.Logf("Result : %#v", command.Result)
 }

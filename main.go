@@ -26,18 +26,23 @@ const (
 	toolDoc  = "extracts declaration of a struct with it's methods"
 )
 
+type CodeConfig struct {
+	SelectedType     string
+	TestMode         bool
+	DebugPrint       bool
+	Serve            bool
+	TemplateFile     string
+	OutputFile       string
+	SelectedPeerType string
+}
+
 type Command struct {
-	TypeName     string
-	TestMode     bool
-	DebugPrint   bool
-	Serve        bool
-	TemplateFile string
-	OutputFile   string
-	PeerStruct   string
-	CodeBuilder  *analysis.Analyzer
-	Inspector    *analysis.Analyzer
-	Path         string
-	WorkingDir   string
+	CodeConfig
+	CodeBuilder *analysis.Analyzer
+	Inspector   *analysis.Analyzer
+	WorkingDir  string
+	Result      *PackageInfo
+	Out         bytes.Buffer
 }
 
 // builds a new command from the analyzer (which holds the inspector) and sets the Run function
@@ -50,43 +55,24 @@ func NewCommand(analyzer *analysis.Analyzer) *Command {
 		panic("we require only inspectAlyzer - shouldn't happen")
 	}
 	result := Command{
-		TypeName:     analyzer.Flags.Lookup("type").Value.String(),
-		TestMode:     analyzer.Flags.Lookup("testMode").Value.String() == "true",
-		DebugPrint:   analyzer.Flags.Lookup("debugPrint").Value.String() == "true",
-		Serve:        analyzer.Flags.Lookup("serve").Value.String() == "true",
-		TemplateFile: analyzer.Flags.Lookup("template").Value.String(),
-		OutputFile:   analyzer.Flags.Lookup("output").Value.String(),
-		PeerStruct:   analyzer.Flags.Lookup("target").Value.String(),
-		WorkingDir:   workingDir,
-		CodeBuilder:  analyzer,
-		Inspector:    analyzer.Requires[0], // needed in Run of the Command
+		CodeConfig: CodeConfig{
+			SelectedType:     analyzer.Flags.Lookup("type").Value.String(),
+			TestMode:         analyzer.Flags.Lookup("testMode").Value.String() == "true",
+			DebugPrint:       analyzer.Flags.Lookup("debugPrint").Value.String() == "true",
+			Serve:            analyzer.Flags.Lookup("serve").Value.String() == "true",
+			TemplateFile:     analyzer.Flags.Lookup("template").Value.String(),
+			OutputFile:       analyzer.Flags.Lookup("output").Value.String(),
+			SelectedPeerType: analyzer.Flags.Lookup("target").Value.String(),
+		},
+		WorkingDir:  workingDir,
+		CodeBuilder: analyzer,
+		Inspector:   analyzer.Requires[0], // needed in Run of the Command
 	}
 	analyzer.Run = result.Run // set the Run function to the analyzer
 	return &result
 }
 
-// set the flags to the analyzer
-func setFlags(flagSet *flag.FlagSet) {
-	flagSet.Bool("serve", false, "serve the playground, to help you build templates")
-	flagSet.String("type", "", "type that should be processed e.g. SomeJsonPayload")
-	flagSet.String("output", "", "name of the output file e.g. json_gen.go")
-	flagSet.String("template", "", "name of the template file e.g. ./../templates/")
-	flagSet.String("target", "", "name of the peer struct e.g. ./../testdata/pkg/model_b/SomeProtoBufPayload")
-	flagSet.Bool("testMode", false, "is in test mode : just display the result")
-	flagSet.Bool("debugPrint", false, "print debugging info")
-	flagSet.Usage = func() {
-		descMultiline := strings.Split(toolDoc, "\n\n")
-		fmt.Fprintf(os.Stderr, "%s: %s\n\n", toolName, descMultiline[0])
-		fmt.Fprintf(os.Stderr, "Usage: %s [-flag] [package]\n", toolName)
-		if len(descMultiline) > 1 {
-			fmt.Fprintln(os.Stderr, strings.Join(descMultiline[1:], "\n\n"))
-		}
-		fmt.Fprintf(os.Stderr, "\nFlags:\n")
-		flagSet.PrintDefaults()
-	}
-}
-
-func Prepare() *Command {
+func DefaultAnalyzer() *analysis.Analyzer {
 	// traverse the ast tree providing result for our analyzer
 	inspectAlyzer := &analysis.Analyzer{
 		Name: "inspect",
@@ -98,15 +84,35 @@ func Prepare() *Command {
 		ResultType:       reflect.TypeOf(new(inspector.Inspector)),
 	}
 	// the analyzer that loads code with data
-	analyzer := &analysis.Analyzer{
+	result := &analysis.Analyzer{
 		Name:             toolName,
 		Doc:              toolDoc,
 		RunDespiteErrors: true,
 		Requires:         []*analysis.Analyzer{inspectAlyzer},
 		ResultType:       reflect.TypeOf(new(PackageInfo)),
 	}
-	// set flags needed from command line
-	setFlags(&analyzer.Flags)
+	result.Flags.Bool("serve", false, "serve the playground, to help you build templates")
+	result.Flags.String("type", "", "type that should be processed e.g. SomeJsonPayload")
+	result.Flags.String("output", "", "name of the output file e.g. json_gen.go")
+	result.Flags.String("template", "", "name of the template file e.g. ./../templates/")
+	result.Flags.String("target", "", "name of the peer struct e.g. ./../testdata/pkg/model_b/SomeProtoBufPayload")
+	result.Flags.Bool("testMode", false, "is in test mode : just display the result")
+	result.Flags.Bool("debugPrint", false, "print debugging info")
+	result.Flags.Usage = func() {
+		descMultiline := strings.Split(toolDoc, "\n\n")
+		fmt.Fprintf(os.Stderr, "%s: %s\n\n", toolName, descMultiline[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [-flag] [package]\n", toolName)
+		if len(descMultiline) > 1 {
+			fmt.Fprintln(os.Stderr, strings.Join(descMultiline[1:], "\n\n"))
+		}
+		fmt.Fprintf(os.Stderr, "\nFlags:\n")
+		result.Flags.PrintDefaults()
+	}
+	return result
+}
+
+func Prepare() *Command {
+	analyzer := DefaultAnalyzer()
 	// set the logger
 	log.SetFlags(0)
 	log.SetPrefix(toolName + ": ")
@@ -119,15 +125,23 @@ func Prepare() *Command {
 }
 
 // print the current configuration
-func (c *Command) Print() {
-	log.Printf("running in folder %q\n", c.WorkingDir)
-	log.Printf("processing type : %q - test mode : %t, printing debug : %t\n", c.TypeName, c.TestMode, c.DebugPrint)
-	log.Printf("serve : %t; template %q ; output %q ; target %q\n", c.Serve, c.TemplateFile, c.OutputFile, c.PeerStruct)
+func (c *Command) Print(withRunningFolder bool) string {
+	result := ""
+	if withRunningFolder {
+		result = fmt.Sprintf("running in folder %q\n", c.WorkingDir)
+	}
+	c.CodeBuilder.Flags.VisitAll(func(f *flag.Flag) {
+		if !withRunningFolder {
+			result += "-"
+		}
+		result += f.Name + "=" + f.Value.String() + " "
+	})
+	return result
 }
 
 // check if vital things are missing from the configuration
 func (c *Command) Check() {
-	if c.TemplateFile == "" || c.TypeName == "" || (!c.TestMode && c.OutputFile == "") {
+	if c.TemplateFile == "" || c.SelectedType == "" || (!c.TestMode && c.OutputFile == "") {
 		c.CodeBuilder.Flags.Usage()
 		os.Exit(1)
 	}
@@ -202,27 +216,39 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 	return result, err
 }
 
-// load package and run generate
-func (c *Command) Do() error {
+// load package
+func (c *Command) Load(path string) (*packages.Package, error) {
 	conf := packages.Config{
 		Mode:  packages.NeedName | packages.NeedFiles | packages.NeedImports | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax,
 		Tests: true,
 	}
-	log.Printf("Loading %q\n", c.Path)
-	loadedPackages, err := packages.Load(&conf, c.Path)
+
+	// did you knew that you can `loadedPackages, err := packages.Load(config, fmt.Sprintf("file=%s", filename))`
+	loadedPackage, err := packages.Load(&conf, path) //supports variadic multiple paths but we're using only one
 	if err != nil {
-		log.Printf("error loading package %q : %v\n", c.Path, err)
-		return err
+		log.Printf("error loading package %q : %v\n", path, err)
+		return nil, err
 	}
 
-	if n := packages.PrintErrors(loadedPackages); n > 1 {
-		err = fmt.Errorf("%d errors during loading", n)
-	} else if n == 1 {
-		err = fmt.Errorf("error during loading")
-	} else if len(loadedPackages) == 0 {
-		err = fmt.Errorf("%s matched no packages\n", c.Path)
+	n := packages.PrintErrors(loadedPackage)
+	switch n {
+	case 0:
+	default:
+		return nil, fmt.Errorf("%d error(s) encountered during load", n)
 	}
 
+	switch len(loadedPackage) {
+	case 0:
+		return nil, fmt.Errorf("%q matched no packages\n", path)
+	case 1:
+		// only allowed one
+	default:
+		return nil, fmt.Errorf("one pacakge at a time required")
+	}
+	return loadedPackage[0], nil
+}
+
+func (c *Command) Analyse(loadedPackage *packages.Package) error {
 	type key struct {
 		*analysis.Analyzer
 		*packages.Package
@@ -232,12 +258,12 @@ func (c *Command) Do() error {
 
 	var mkAction func(analyzer *analysis.Analyzer, pkg *packages.Package) *Action
 	mkAction = func(analyzer *analysis.Analyzer, pkg *packages.Package) *Action {
-		k := key{analyzer, pkg}
-		act, ok := actions[k]
+		mapKey := key{analyzer, pkg}
+		action, ok := actions[mapKey]
 		if !ok {
-			act = &Action{parentAnalyzer: analyzer, pkg: pkg}
+			action = &Action{parentAnalyzer: analyzer, pkg: pkg}
 			for _, req := range analyzer.Requires {
-				act.deps = append(act.deps, mkAction(req, pkg))
+				action.deps = append(action.deps, mkAction(req, pkg))
 			}
 			if len(analyzer.FactTypes) > 0 {
 				paths := make([]string, 0, len(pkg.Imports))
@@ -247,88 +273,70 @@ func (c *Command) Do() error {
 				sort.Strings(paths)
 				for _, path := range paths {
 					dep := mkAction(analyzer, pkg.Imports[path])
-					act.deps = append(act.deps, dep)
+					action.deps = append(action.deps, dep)
 				}
 			}
-			actions[k] = act
+			actions[mapKey] = action
 		}
-		return act
+		return action
 	}
 
-	var results []*Action
+	result := mkAction(c.CodeBuilder, loadedPackage)
+	result.exec()
 
-	for _, pkg := range loadedPackages {
-		root := mkAction(c.CodeBuilder, pkg)
-		results = append(results, root)
+	typedResult, ok := result.result.(*PackageInfo)
+	if !ok {
+		return fmt.Errorf("error : interface not *PackageInfo")
 	}
-
-	execAll(results)
-
-	return c.Generate(results)
+	c.Result = typedResult
+	return nil
 }
 
-func (c *Command) Generate(results []*Action) error {
-	if len(results) == 1 {
-		packageInfo, ok := results[0].result.(*PackageInfo)
-		if !ok {
-			log.Fatalf("Error : interface not *PackageInfo")
-		}
-		wkdir := c.WorkingDir
-		goPath := os.Getenv("GOPATH")
-		goPathParts := strings.Split(goPath, ":")
-		for _, part := range goPathParts {
-			wkdir = strings.Replace(wkdir, part, "", -1)
-		}
-		if strings.HasPrefix(wkdir, "/src/") {
-			wkdir = wkdir[5:]
-		}
+func (c *Command) Generate() error {
+	result, err := c.NewCode()
+	if err != nil {
+		return fmt.Errorf("error making code object : %v", err)
+	}
 
-		result, err := c.NewCode(packageInfo)
-		if err != nil {
-			log.Fatalf("error making code object : %v", err)
-		}
+	var buf bytes.Buffer
+	if err := result.Tmpl().Execute(&buf, &result); err != nil {
+		return fmt.Errorf("failed to parse template %s: %s\nPartial result:\n%s", c.TemplateFile, err, buf.String())
+	}
 
-		var buf bytes.Buffer
-		if err := result.Tmpl().Execute(&buf, &result); err != nil {
-			log.Fatalf("failed to parse template %s: %s\nPartial result:\n%s", c.TemplateFile, err, buf.String())
-		}
-		// forced add header
-		var src []byte
-		src = append(src, result.Header()...)
-		src = append(src, buf.Bytes()...)
-		formatted, err := format.Source(src)
-		if err != nil {
-			log.Fatalf("go/format: %s\nResult:\n%s", err, src)
-		} else if !c.TestMode {
-			/**
-			if _, err := os.Stat(*OutputFile); !os.IsNotExist(err) {
-				log.Fatalf("destination exists = %q", *OutputFile)
-			}
-			**/
-			log.Printf("Creating %s/%s\n", c.WorkingDir, c.OutputFile)
-			file, err := os.Create(c.WorkingDir + "/" + c.OutputFile)
-			if err != nil {
-				log.Fatalf("Error creating output: %v", err)
-			}
-			// go ahead and write the file
-			if _, err := file.Write(formatted); err != nil {
-				log.Fatalf("error writing : %v", err)
-			}
-		} else {
-			log.Println(string(formatted))
-		}
-	} else {
-		log.Printf("%d actions. something went bad.", len(results))
+	// forced add header
+	var src []byte
+	src = append(src, result.Header(c.Print(false))...)
+	src = append(src, buf.Bytes()...)
+	// format the source
+	formatted, err := format.Source(src)
+	if err != nil {
+		return fmt.Errorf("go/format error: %v\nGo source:\n%s", err, src)
+	}
+	c.Out.Write(formatted)
+	// if it's testmode, print and exit (same as playground, but in terminal)
+	if c.TestMode {
+		return nil
+	}
+	// TODO : if file exists, overwrite only the generated part - template should announce the intention of generator e.g. will write methods with signature "String() string" for the struct named "<struct_name>"
+	/**
+	if _, err := os.Stat(*OutputFile); !os.IsNotExist(err) {
+		log.Fatalf("destination exists = %q", *OutputFile)
+	}
+	**/
+	log.Printf("Creating %s/%s\n", c.WorkingDir, c.OutputFile)
+	file, err := os.Create(c.WorkingDir + "/" + c.OutputFile)
+	if err != nil {
+		return fmt.Errorf("error creating file : %v", err)
+	}
+	// go ahead and write the file
+	if _, err := file.Write(formatted); err != nil {
+		return fmt.Errorf("error writing to file : %v", err)
 	}
 	return nil
 }
 
-func (c *Command) NewCode(packageInfo *PackageInfo) (*Code, error) {
-	templatePath, err := filepath.Abs(c.TemplateFile)
-	if err != nil {
-		return nil, err
-	}
-	tmpl, err := loadTemplate(templatePath, template.FuncMap{
+func DefaultFuncMap() template.FuncMap {
+	return template.FuncMap{
 		//"toJsonName":    swag.ToJSONName, // TODO : import all, but make it field functionality
 		"in":            contains,
 		"empty":         empty,
@@ -346,21 +354,27 @@ func (c *Command) NewCode(packageInfo *PackageInfo) (*Code, error) {
 		"concat": func(a, b string) string {
 			return a + b
 		},
-	})
+	}
+}
+
+func (c *Command) NewCode() (*Code, error) {
+	templatePath, err := filepath.Abs(c.TemplateFile)
 	if err != nil {
 		return nil, err
 	}
+	if _, err := os.Stat(templatePath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("template-error : %v ; path = %q", err, templatePath)
+	}
+	tmpl, err := template.New(filepath.Base(templatePath)).Funcs(DefaultFuncMap()).ParseFiles(templatePath)
+	if err != nil {
+		return nil, fmt.Errorf("template-parse-error : %v ; path = %q", err, templatePath)
+	}
 	result := Code{
-		PackageInfo:  packageInfo,
-		SelectedType: c.TypeName,
-		OutputFile:   c.OutputFile,
-		PeerName:     c.PeerStruct,
-		TemplateFile: c.TemplateFile,
-		TestMode:     c.TestMode,
-		keeper:       make(map[string]interface{}),
-		tmpl:         tmpl,
-		debugPrint:   c.DebugPrint,
-		Main:         TypeWithRoot{T: packageInfo.Types.Extract(c.TypeName)},
+		PackageInfo: c.Result,
+		CodeConfig:  c.CodeConfig,
+		keeper:      make(map[string]interface{}),
+		tmpl:        tmpl,
+		Main:        TypeWithRoot{T: c.Result.Types.Extract(c.SelectedType)},
 	}
 	result.Main.D = &result
 	return &result, nil
@@ -400,8 +414,13 @@ func (a *Action) exec() {
 	a.once.Do(a.execOnce)
 }
 
+func (a *Action) ResultType() reflect.Type {
+	return reflect.TypeOf(a.result)
+}
+
 func (a *Action) execOnce() {
 	execAll(a.deps)
+
 	var failed []string
 	for _, dep := range a.deps {
 		if dep.err != nil {
@@ -415,7 +434,6 @@ func (a *Action) execOnce() {
 	}
 
 	inputs := make(map[*analysis.Analyzer]interface{})
-
 	for _, dep := range a.deps {
 		if dep.pkg == a.pkg {
 			inputs[dep.parentAnalyzer] = dep.result
@@ -440,7 +458,7 @@ func (a *Action) execOnce() {
 	} else {
 		a.result, err = a.pass.Analyzer.Run(a.pass)
 		if err == nil {
-			if got, want := reflect.TypeOf(a.result), a.pass.Analyzer.ResultType; got != want {
+			if got, want := a.ResultType(), a.pass.Analyzer.ResultType; got != want {
 				err = fmt.Errorf("internal error: on package %s, analyzer %s returned a result of type %v, but declared ResultType %v", a.pass.Pkg.Path(), a.pass.Analyzer, got, want)
 			}
 		}
