@@ -68,7 +68,7 @@ type (
 )
 
 func (s *visitor) Write(content string) {
-	s.Writer.Write([]byte(content))
+	_, _ = s.Writer.Write([]byte(content))
 }
 
 func (s *visitor) indent() {
@@ -362,9 +362,9 @@ func (s *visitor) visit(value reflect.Value) {
 		}
 	default:
 		if realValue.CanInterface() {
-			fmt.Fprintf(s.Writer, "%v", realValue.Interface())
+			_, _ = fmt.Fprintf(s.Writer, "%v", realValue.Interface())
 		} else {
-			fmt.Fprintf(s.Writer, "%v", realValue.String())
+			_, _ = fmt.Fprintf(s.Writer, "%v", realValue.String())
 		}
 	}
 }
@@ -420,7 +420,7 @@ func (o PrintOpts) Print(values ...interface{}) {
 		}
 		state.print(value)
 	}
-	os.Stdout.Write([]byte(newline))
+	_, _ = os.Stdout.Write([]byte(newline))
 }
 
 func (o PrintOpts) SPrint(values ...interface{}) string {

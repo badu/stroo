@@ -27,11 +27,11 @@ func (e *TemporaryProject) Filename(tmpPackName, tmpPackFileName string) string 
 func (e *TemporaryProject) Finalize() error {
 	e.Config.Env = append(e.Config.Env, "GO111MODULE=off")
 	goPath := ""
-	for virtualPackage := range e.packsWritten {
+	for tempPack := range e.packsWritten {
 		if goPath != "" {
 			goPath += string(filepath.ListSeparator)
 		}
-		dir := e.goPathDir(virtualPackage)
+		dir := e.goPathDir(tempPack)
 		goPath += dir
 	}
 	e.Config.Env = append(e.Config.Env, "GOPATH="+goPath)
@@ -48,7 +48,7 @@ func (e *TemporaryProject) Cleanup() {
 			return nil
 		}
 		if info.IsDir() {
-			os.Chmod(path, 0777)
+			_ = os.Chmod(path, 0777)
 		}
 		return nil
 	}); err != nil {
@@ -84,7 +84,7 @@ type TemporaryPackage struct {
 
 func CreateTempProj(tmpPacks []TemporaryPackage) (*TemporaryProject, error) {
 	if len(tmpPacks) == 0 {
-		return nil, errors.New("at least one virtual package is required")
+		return nil, errors.New("at least one temporary package is required")
 	}
 	dirName := strings.Replace(tmpPacks[0].Name, "/", "_", -1)
 	tempFolder, err := ioutil.TempDir("", dirName)

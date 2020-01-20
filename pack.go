@@ -1,6 +1,7 @@
 package stroo
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/types"
@@ -36,7 +37,7 @@ func (pkg *PackageInfo) ReadArrayInfo(astSpec *ast.TypeSpec, comment *ast.Commen
 		info.Package = obj.Pkg().Name()
 		info.PackagePath = obj.Pkg().Path()
 	} else {
-		log.Fatalf("%q not found in TypesInfo.Defs", astSpec.Name)
+		return fmt.Errorf("%q not found in TypesInfo.Defs", astSpec.Name)
 	}
 	// TODO : take comments from both astSpec.Comment.Text(), comment.Text()
 	switch elType := astSpec.Type.(*ast.ArrayType).Elt.(type) {
@@ -70,7 +71,7 @@ func (pkg *PackageInfo) ReadArrayInfo(astSpec *ast.TypeSpec, comment *ast.Commen
 	return nil
 }
 
-func (pkg *PackageInfo) FieldLookupAndFill(named string, info *FieldInfo) types.Object {
+func (pkg *PackageInfo) FieldLookupAndFill(named string, info *FieldInfo) (types.Object, error) {
 	for key, value := range pkg.TypesInfo.Defs {
 		if key.Name == named {
 			info.Kind = value.Name()
@@ -79,7 +80,7 @@ func (pkg *PackageInfo) FieldLookupAndFill(named string, info *FieldInfo) types.
 				info.IsPointer = true
 				switch underPtr := underType.Elem().Underlying().(type) {
 				default:
-					log.Fatalf("pointer lookup : don't know what to do with : %#v", underPtr)
+					return nil, fmt.Errorf("pointer lookup : don't know what to do with : %#v", underPtr)
 				case *types.Struct:
 					info.IsStruct = true
 				case *types.Slice:
@@ -94,16 +95,15 @@ func (pkg *PackageInfo) FieldLookupAndFill(named string, info *FieldInfo) types.
 			case *types.Interface:
 				info.IsInterface = true
 			default:
-				log.Fatalf("lookup unknown %q -> exported %t; type %#v; package= %v; id=%q", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id())
+				return nil, fmt.Errorf("lookup unknown %q -> exported %t; type %#v; package= %v; id=%q", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id())
 			}
-			return value
+			return value, nil
 		}
 	}
-	log.Fatalf("lookup for " + named + " failed.")
-	return nil
+	return nil, fmt.Errorf("lookup for %q failed", named)
 }
 
-func (pkg *PackageInfo) DirectIdent(ident *ast.Ident, comment *ast.CommentGroup) {
+func (pkg *PackageInfo) DirectIdent(ident *ast.Ident, comment *ast.CommentGroup) error {
 	newInfo := TypeInfo{Comment: comment}
 	found := false
 	switch ident.Name {
@@ -121,14 +121,14 @@ func (pkg *PackageInfo) DirectIdent(ident *ast.Ident, comment *ast.CommentGroup)
 					newInfo.IsPointer = true
 					switch underPtr := underType.Elem().Underlying().(type) {
 					default:
-						log.Fatalf("pointer lookup : don't know what to do with : %#v", underPtr)
+						return fmt.Errorf("pointer lookup : don't know what to do with : %#v", underPtr)
 					case *types.Slice:
 						newInfo.IsArray = true
 					}
 				case *types.Slice:
 					newInfo.IsArray = true
 				default:
-					log.Fatalf("lookup unknown %q -> exported %t; type %#v; package= %v; id=%q", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id())
+					return fmt.Errorf("lookup unknown %q -> exported %t; type %#v; package= %v; id=%q", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id())
 				}
 				if pkg.PrintDebug {
 					log.Printf("Self adding : %#v", newInfo)
@@ -144,25 +144,25 @@ func (pkg *PackageInfo) DirectIdent(ident *ast.Ident, comment *ast.CommentGroup)
 	if pkg.PrintDebug {
 		log.Printf("%q not found in TypesInfo.Defs", ident.Name)
 	}
+	return nil
 }
 
-func (pkg *PackageInfo) DirectSelector(sel *ast.SelectorExpr, comment *ast.CommentGroup) {
+func (pkg *PackageInfo) DirectSelector(sel *ast.SelectorExpr, comment *ast.CommentGroup) error {
 	if ident, ok := sel.X.(*ast.Ident); ok {
 		newInfo := TypeInfo{Comment: comment}
 		newInfo.Package = ident.Name
 		newInfo.Kind = sel.Sel.Name
 		newInfo.Name = sel.Sel.Name
 		pkg.Types = append(pkg.Types, &newInfo)
-
 	}
+	return nil
 }
 
-func (pkg *PackageInfo) DirectPointer(ptr *ast.StarExpr, comment *ast.CommentGroup) {
+func (pkg *PackageInfo) DirectPointer(ptr *ast.StarExpr, comment *ast.CommentGroup) error {
 	newInfo := TypeInfo{Comment: comment}
 	newInfo.IsPointer = true
 	switch ptrType := ptr.X.(type) {
 	case *ast.Ident:
-
 		found := false
 		switch ptrType.Name {
 		case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "complex64", "complex128", "string":
@@ -179,14 +179,14 @@ func (pkg *PackageInfo) DirectPointer(ptr *ast.StarExpr, comment *ast.CommentGro
 						newInfo.IsPointer = true
 						switch underPtr := underType.Elem().Underlying().(type) {
 						default:
-							log.Fatalf("pointer lookup : don't know what to do with : %#v", underPtr)
+							return fmt.Errorf("pointer lookup : don't know what to do with : %#v", underPtr)
 						case *types.Slice:
 							newInfo.IsArray = true
 						}
 					case *types.Slice:
 						newInfo.IsArray = true
 					default:
-						log.Fatalf("lookup unknown %q -> exported %t; type %#v; package= %v; id=%q", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id())
+						return fmt.Errorf("lookup unknown %q -> exported %t; type %#v; package= %v; id=%q", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id())
 					}
 					if pkg.PrintDebug {
 						log.Printf("Self adding : %#v", newInfo)
@@ -209,24 +209,26 @@ func (pkg *PackageInfo) DirectPointer(ptr *ast.StarExpr, comment *ast.CommentGro
 	default:
 		log.Printf("unknown pointer type %T", ptrType)
 	}
-
+	return nil
 }
 
-func (pkg *PackageInfo) ReadIdent(ident *ast.Ident, info *FieldInfo, comment *ast.CommentGroup) {
+func (pkg *PackageInfo) ReadIdent(ident *ast.Ident, info *FieldInfo, comment *ast.CommentGroup) error {
 	switch ident.Name {
 	case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "complex64", "complex128", "string":
 		info.IsBasic = true
 		info.Kind = ident.Name
 	case "chan":
-		log.Fatalf("not implemented")
+		return fmt.Errorf("chan not implemented")
 	default:
 		if info.IsImported {
-			return
+			return nil
 		}
 		info.Kind = ident.Name
-		obj := pkg.FieldLookupAndFill(ident.Name, info)
+		obj, err := pkg.FieldLookupAndFill(ident.Name, info)
 		if obj == nil {
-			log.Fatalf("%q not found while processing ident %#v", ident.Name, info)
+			return fmt.Errorf("%q not found while processing ident %#v", ident.Name, info)
+		} else if err != nil {
+			return fmt.Errorf("%q processing ident with error : %v", ident.Name, err)
 		}
 	}
 
@@ -235,9 +237,10 @@ func (pkg *PackageInfo) ReadIdent(ident *ast.Ident, info *FieldInfo, comment *as
 			log.Printf("[%q] kind = %q pointer = %t basic = %t struct = %t array = %t package %q", info.Name, info.Kind, info.IsPointer, info.IsBasic, info.IsStruct, info.IsArray, info.Package)
 		}
 	}
+	return nil
 }
 
-func (pkg *PackageInfo) ReadSelector(sel *ast.SelectorExpr, info *FieldInfo, comment *ast.CommentGroup) {
+func (pkg *PackageInfo) ReadSelector(sel *ast.SelectorExpr, info *FieldInfo, comment *ast.CommentGroup) error {
 	info.IsImported = true
 	if ident, ok := sel.X.(*ast.Ident); ok {
 		info.Package = ident.Name
@@ -245,10 +248,11 @@ func (pkg *PackageInfo) ReadSelector(sel *ast.SelectorExpr, info *FieldInfo, com
 		if pkg.PrintDebug {
 			log.Printf("SelectorExpr : %q.%q", info.Package, info.Kind)
 		}
-		pkg.ReadIdent(ident, info, comment)
-	} else {
-		log.Fatalf("*ast.SelectorExpr.X is not *ast.Ident")
+		if err := pkg.ReadIdent(ident, info, comment); err != nil {
+			return fmt.Errorf("error reading selector : %v", err)
+		}
 	}
+	return fmt.Errorf("*ast.SelectorExpr.X is not *ast.Ident")
 }
 
 func (pkg *PackageInfo) ReadPointer(ptr *ast.StarExpr, info *FieldInfo, comment *ast.CommentGroup) error {
@@ -258,10 +262,14 @@ func (pkg *PackageInfo) ReadPointer(ptr *ast.StarExpr, info *FieldInfo, comment 
 	info.IsPointer = true
 	switch ptrType := ptr.X.(type) {
 	case *ast.Ident:
-		pkg.ReadIdent(ptrType, info, comment)
+		if err := pkg.ReadIdent(ptrType, info, comment); err != nil {
+			return fmt.Errorf("error reading selector : %v", err)
+		}
 	case *ast.SelectorExpr:
 		// fields from other packages
-		pkg.ReadSelector(ptrType, info, comment)
+		if err := pkg.ReadSelector(ptrType, info, comment); err != nil {
+			return fmt.Errorf("error reading selector : %v", err)
+		}
 	default:
 		log.Printf("unknown pointer %q of type %T", info.Kind, ptrType)
 		return fmt.Errorf(ErrNotImplemented, ptr, info.Name)
@@ -297,10 +305,14 @@ func (pkg *PackageInfo) ReadStructInfo(astSpec *ast.TypeSpec, comment *ast.Comme
 					return err
 				}
 			case *ast.Ident:
-				pkg.ReadIdent(fieldType, &embeddedField, nil)
+				if err := pkg.ReadIdent(fieldType, &embeddedField, nil); err != nil {
+					return fmt.Errorf("error reading selector : %v", err)
+				}
 			case *ast.SelectorExpr:
 				// fields from other packages
-				pkg.ReadSelector(fieldType, &embeddedField, nil)
+				if err := pkg.ReadSelector(fieldType, &embeddedField, nil); err != nil {
+					return fmt.Errorf("error reading selector : %v", err)
+				}
 			default:
 				log.Printf("unknown embedded field %q of type %T", embeddedField.Kind, fieldType)
 				// not allowed
@@ -323,7 +335,9 @@ func (pkg *PackageInfo) ReadStructInfo(astSpec *ast.TypeSpec, comment *ast.Comme
 				return err
 			}
 		case *ast.Ident:
-			pkg.ReadIdent(fieldType, &newField, nil)
+			if err := pkg.ReadIdent(fieldType, &newField, nil); err != nil {
+				return fmt.Errorf("error reading selector : %v", err)
+			}
 		case *ast.MapType:
 			newField.IsMap = true
 		case *ast.ChanType:
@@ -332,7 +346,9 @@ func (pkg *PackageInfo) ReadStructInfo(astSpec *ast.TypeSpec, comment *ast.Comme
 			newField.IsArray = true
 		case *ast.SelectorExpr:
 			// fields from other packages
-			pkg.ReadSelector(fieldType, &newField, nil)
+			if err := pkg.ReadSelector(fieldType, &newField, nil); err != nil {
+				return fmt.Errorf("error reading selector : %v", err)
+			}
 		default:
 			return fmt.Errorf(ErrNotImplemented, fieldType, info.Name)
 		}
@@ -351,7 +367,7 @@ func (pkg *PackageInfo) ReadStructInfo(astSpec *ast.TypeSpec, comment *ast.Comme
 }
 
 // get function information from the function object
-func (pkg *PackageInfo) ReadFunctionInfo(spec *ast.FuncDecl) {
+func (pkg *PackageInfo) ReadFunctionInfo(spec *ast.FuncDecl) error {
 	info := FunctionInfo{
 		Name:         spec.Name.Name,
 		ReceiverName: stringer(getReceiver(spec)),
@@ -365,13 +381,14 @@ func (pkg *PackageInfo) ReadFunctionInfo(spec *ast.FuncDecl) {
 		info.PackagePath = typ.Pkg().Path()
 		info.ReturnType = typ.Type().String()
 	} else if pkg.PrintDebug {
-		log.Printf("ReadFunctionInfo : obj is nil")
+		return errors.New("ReadFunctionInfo : obj is nil")
 	}
 	pkg.Functions = append(pkg.Functions, &info)
+	return nil
 }
 
 // get interface information from interface type declaration
-func (pkg *PackageInfo) ReadInterfaceInfo(spec ast.Spec, comment *ast.CommentGroup) {
+func (pkg *PackageInfo) ReadInterfaceInfo(spec ast.Spec, comment *ast.CommentGroup) error {
 	//var list []InterfaceInfo
 	astSpec := spec.(*ast.TypeSpec)
 	var methods []string
@@ -392,12 +409,14 @@ func (pkg *PackageInfo) ReadInterfaceInfo(spec ast.Spec, comment *ast.CommentGro
 		info.PackagePath = obj.Pkg().Path()
 	}
 	pkg.Interfaces = append(pkg.Interfaces, &info)
+	return nil
 }
 
-func (pkg *PackageInfo) ReadVariablesInfo(spec ast.Spec, valueSpec *ast.ValueSpec) {
+func (pkg *PackageInfo) ReadVariablesInfo(spec ast.Spec, valueSpec *ast.ValueSpec) error {
 	obj := pkg.TypesInfo.Defs[spec.(*ast.ValueSpec).Names[0]]
 	if obj == nil {
-		return
+		log.Printf("%q was not found ", spec.(*ast.ValueSpec).Names[0])
+		return nil
 	}
 	for _, varName := range valueSpec.Names {
 		var name string
@@ -413,4 +432,5 @@ func (pkg *PackageInfo) ReadVariablesInfo(spec ast.Spec, valueSpec *ast.ValueSpe
 		}
 		pkg.Vars = append(pkg.Vars, info)
 	}
+	return nil
 }

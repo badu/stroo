@@ -3,9 +3,9 @@ package stroo
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/gorilla/mux"
-	"github.com/pkg/errors"
 	"go/format"
 	"golang.org/x/tools/go/packages"
 	"log"
@@ -66,103 +66,151 @@ func filesHandler(workingDir string) http.HandlerFunc {
 	})
 }
 
-func respond(w http.ResponseWriter, _ *http.Request, data interface{}, code int) {
-	if err, ok := data.(error); ok {
-		log.Printf("Error : %v", err)
-		data = struct {
-			Error string `json:"error"`
-		}{Error: err.Error()}
-	}
+type ErrorType int
 
-	//if errors.Is()
+const (
+	Json           ErrorType = 1
+	TemplaParse    ErrorType = 2
+	BadTempProject ErrorType = 3
+	PackaLoad      ErrorType = 4
+	OnePackage     ErrorType = 5
+	Packalyse      ErrorType = 6
+	NoTypes        ErrorType = 7
+	TemplExe       ErrorType = 8
+	BadFormat      ErrorType = 9
+)
+
+type MalformedRequest struct {
+	Status int
+	Error  string
+	Type   ErrorType
+}
+
+func respond(w http.ResponseWriter, data interface{}) {
+	if err, ok := data.(error); ok {
+		var (
+			typedError         MalformedRequest
+			malformedRequest   *MalformedRequest
+			syntaxError        *json.SyntaxError
+			unmarshalTypeError *json.UnmarshalTypeError
+		)
+		switch {
+		case errors.As(err, &syntaxError):
+		case errors.As(err, &unmarshalTypeError):
+			typedError = MalformedRequest{
+				Error:  err.Error(),
+				Status: http.StatusBadRequest,
+				Type:   Json,
+			}
+		case errors.As(err, &malformedRequest):
+			typedError = *malformedRequest
+		}
+		data = typedError
+		w.WriteHeader(typedError.Status)
+		log.Printf("Error : %#v", typedError)
+	} else {
+		w.WriteHeader(http.StatusOK) // status is ok
+	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
 	err := json.NewEncoder(w).Encode(data)
 	if err != nil {
 		log.Printf("Error encoding data : %v", err)
 	}
 }
 
-func strooHandler() http.HandlerFunc {
+type previewRequest struct {
+	Template      string
+	Source        string
+	SourceChanged bool
+}
 
-	type previewRequest struct {
-		Template string
-		Source   string
-	}
+type previewResponse struct {
+	Result string `json:"result"`
+}
 
-	type previewResponse struct {
-		Result string `json:"output"`
-	}
+// TODO : allow multiple packages, separated by something (e.g. commented "---")
+// TODO : provide multiple types of errors, so we can track line numbers and things
+func strooHandler(command *Command) http.HandlerFunc {
+
+	var cachedResult *Code
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		var request previewRequest
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			respond(w, r, fmt.Errorf("error decoding data : %v", err), http.StatusBadRequest)
+			respond(w, err)
 			return
 		}
 		// template is more likely to change : we're processing it first
 		tmpTemplate, err := template.New("template").Funcs(DefaultFuncMap()).Parse(request.Template)
 		if err != nil {
-			respond(w, r, fmt.Errorf("error parsing template : %v", err), http.StatusBadRequest)
+			respond(w, MalformedRequest{Error: err.Error(), Type: TemplaParse, Status: http.StatusNoContent})
 			return
 		}
-		// prepare a temp project
-		tempProj, err := CreateTempProj([]TemporaryPackage{{Name: "playground", Files: map[string]interface{}{"file.go": request.Source}}})
-		if err != nil {
-			respond(w, r, fmt.Errorf("failed creating temporary project : %v", err), http.StatusBadRequest)
-			return
-		}
-		// setup cleanup, so temporary files and folders gets deleted
-		defer tempProj.Cleanup()
+		// we're using cached result, so we don't stress the disk for nothing
+		if request.SourceChanged || cachedResult == nil {
+			// prepare a temp project
+			tempProj, err := CreateTempProj([]TemporaryPackage{{Name: "playground", Files: map[string]interface{}{"file.go": request.Source}}})
+			if err != nil {
+				respond(w, MalformedRequest{Error: err.Error(), Type: BadTempProject})
+				return
+			}
+			// setup cleanup, so temporary files and folders gets deleted
+			defer tempProj.Cleanup()
 
-		tempProj.Config.Mode = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedDeps | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax | packages.NeedImports
-		// load package using the old way
-		thePackages, err := packages.Load(tempProj.Config, fmt.Sprintf("file=%s", tempProj.File("playground", "file.go")))
-		if err != nil {
-			respond(w, r, fmt.Errorf("failed loading packages : %v", err), http.StatusBadRequest)
-			return
+			tempProj.Config.Mode = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedDeps | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax | packages.NeedImports
+			// load package using the old way
+			thePackages, err := packages.Load(tempProj.Config, fmt.Sprintf("file=%s", tempProj.File("playground", "file.go")))
+			if err != nil {
+				respond(w, MalformedRequest{Error: err.Error(), Type: PackaLoad})
+				return
+			}
+			if len(thePackages) != 1 {
+				respond(w, MalformedRequest{Error: "expecting exactly one package", Type: OnePackage})
+				return
+			}
+			// create a temporary command to analyse the loaded package
+			tempCommand := NewCommand(DefaultAnalyzer())
+			tempCommand.TestMode = command.TestMode
+			if err := tempCommand.Analyse(thePackages[0]); err != nil {
+				respond(w, MalformedRequest{Error: err.Error(), Type: Packalyse})
+				return
+			}
+			// convention : by default, the upper most type struct is provided to the code builder
+			var firstType *TypeInfo
+			if len(tempCommand.Result.Types) >= 1 {
+				firstType = tempCommand.Result.Types[0]
+			} else {
+				// TODO : allow no types selected - might just want to work with interfaces
+				respond(w, MalformedRequest{Error: "no types found. please a a type", Type: NoTypes})
+				return
+			}
+			// create code
+			result := Code{
+				PackageInfo: tempCommand.Result,
+				CodeConfig:  tempCommand.CodeConfig,
+				keeper:      make(map[string]interface{}),
+				tmpl:        tmpTemplate,
+				Main:        TypeWithRoot{T: firstType},
+			}
+			result.Main.D = &result
+			cachedResult = &result
 		}
-		if len(thePackages) != 1 {
-			respond(w, r, errors.New("%d packages found. should be exactly one"), http.StatusBadRequest)
-			return
-		}
-		// create a temporary command to analyse the loaded package
-		tempCommand := NewCommand(DefaultAnalyzer())
-		if err := tempCommand.Analyse(thePackages[0]); err != nil {
-			respond(w, r, fmt.Errorf("error analyzing package : %v", err), http.StatusBadRequest)
-			return
-		}
-		// convention : by default, the upper most type struct is provided to the code builder
-		var firstType *TypeInfo
-		if len(tempCommand.Result.Types) >= 1 {
-			firstType = tempCommand.Result.Types[0]
-		} else {
-			respond(w, r, errors.New("no types found. please a a type"), http.StatusBadRequest)
-			return
-		}
-		// create code
-		result := Code{
-			PackageInfo: tempCommand.Result,
-			CodeConfig:  tempCommand.CodeConfig,
-			keeper:      make(map[string]interface{}),
-			tmpl:        tmpTemplate,
-			Main:        TypeWithRoot{T: firstType},
-		}
-		result.Main.D = &result
+
 		// finally, we're processing the template over the result
 		var buf bytes.Buffer
-		if err := tmpTemplate.Execute(&buf, &result); err != nil {
-			respond(w, r, fmt.Errorf("error executing template : %v", err), http.StatusBadRequest)
-			return
-		}
-		formatted, err := format.Source(buf.Bytes())
-		if err != nil {
-			respond(w, r, fmt.Errorf("go/format error: %v\nGo source:\n%s", err, buf.String()), http.StatusBadRequest)
+		if err := tmpTemplate.Execute(&buf, cachedResult); err != nil {
+			respond(w, MalformedRequest{Error: err.Error(), Type: TemplExe})
 			return
 		}
 
+		formatted, err := format.Source(buf.Bytes())
+		if err != nil {
+			log.Printf("bad format error : %v\nGo source:\n%s\n", err, buf.String())
+			respond(w, MalformedRequest{Error: err.Error(), Type: BadFormat})
+			return
+		}
 		response := previewResponse{Result: string(formatted)}
-		respond(w, r, response, http.StatusOK)
+		respond(w, response)
 	}
 }
 
@@ -176,7 +224,7 @@ func StartPlayground(command *Command) {
 	router.Handle("/example-source", exampleSourceHandler(wd)).Methods("GET")
 	router.Handle("/example-template", exampleTemplateHandler(wd)).Methods("GET")
 	router.NotFoundHandler = filesHandler(wd)
-	router.HandleFunc("/stroo-it", strooHandler()).Methods("POST")
+	router.HandleFunc("/stroo-it", strooHandler(command)).Methods("POST")
 	if err := http.ListenAndServe("0.0.0.0:8080", router); err != nil {
 		log.Fatalf("error while serving : %v", err)
 	}

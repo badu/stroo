@@ -32,7 +32,7 @@ As usual, install like any other Go tool.
 
 ## Playground
 
-Yes, there is a playground to help you build templates.
+Yes, there is a playground to help you build templates. By default, the first `type` definition from the source is passed to your template and you should have at least one.
 
 ### Notes
 

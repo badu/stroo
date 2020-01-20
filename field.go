@@ -31,7 +31,7 @@ func (f *FieldInfo) TagsByKey(name string) []string {
 	}
 	tag, err := f.Tags.Get(name)
 	if err != nil {
-		log.Fatalf("error: %v", err)
+		log.Printf("error: %v", err)
 		return nil
 	}
 	return tag.Options

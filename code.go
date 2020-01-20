@@ -126,10 +126,10 @@ func (c *Code) AddToImports(imp string) string {
 
 func (c *Code) Declare(name string) bool {
 	if c.Main.T == nil {
-		log.Fatalf("error : main type is not set - impossible...")
+		log.Printf("error : main type is not set - impossible...")
 	}
 	if name == "" {
-		log.Fatalf("error : cannot declare empty template name (e.g.`Stringer`)")
+		log.Printf("error : cannot declare empty template name (e.g.`Stringer`)")
 	}
 	c.templateName = name
 	c.keeper[name+c.Main.T.Name] = "" // set it to empty in case of self reference, so template will exit

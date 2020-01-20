@@ -52,7 +52,7 @@ func NewCommand(analyzer *analysis.Analyzer) *Command {
 		log.Fatalf("could NOT get working dir : %v", err)
 	}
 	if len(analyzer.Requires) != 1 {
-		panic("we require only inspectAlyzer - shouldn't happen")
+		log.Fatalf("we require only inspectAlyzer - shouldn't happen")
 	}
 	result := Command{
 		CodeConfig: CodeConfig{
@@ -100,12 +100,12 @@ func DefaultAnalyzer() *analysis.Analyzer {
 	result.Flags.Bool("debugPrint", false, "print debugging info")
 	result.Flags.Usage = func() {
 		descMultiline := strings.Split(toolDoc, "\n\n")
-		fmt.Fprintf(os.Stderr, "%s: %s\n\n", toolName, descMultiline[0])
-		fmt.Fprintf(os.Stderr, "Usage: %s [-flag] [package]\n", toolName)
+		_, _ = fmt.Fprintf(os.Stderr, "%s: %s\n\n", toolName, descMultiline[0])
+		_, _ = fmt.Fprintf(os.Stderr, "Usage: %s [-flag] [package]\n", toolName)
 		if len(descMultiline) > 1 {
-			fmt.Fprintln(os.Stderr, strings.Join(descMultiline[1:], "\n\n"))
+			_, _ = fmt.Fprintln(os.Stderr, strings.Join(descMultiline[1:], "\n\n"))
 		}
-		fmt.Fprintf(os.Stderr, "\nFlags:\n")
+		_, _ = fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		result.Flags.PrintDefaults()
 	}
 	return result
@@ -170,7 +170,9 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 		}
 		switch nodeType := node.(type) {
 		case *ast.FuncDecl:
-			result.ReadFunctionInfo(nodeType)
+			if infoErr := result.ReadFunctionInfo(nodeType); infoErr != nil {
+				err = infoErr
+			}
 		case *ast.GenDecl:
 			switch nodeType.Tok {
 			case token.TYPE:
@@ -179,7 +181,9 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 					switch unknownType := typeSpec.Type.(type) {
 					case *ast.InterfaceType:
 						// e.g. `type Intf interface{}`
-						result.ReadInterfaceInfo(spec, nodeType.Doc)
+						if infoErr := result.ReadInterfaceInfo(spec, nodeType.Doc); infoErr != nil {
+							err = infoErr
+						}
 					case *ast.ArrayType:
 						// e.g. `type Array []string`
 						if infoErr := result.ReadArrayInfo(spec.(*ast.TypeSpec), nodeType.Doc); infoErr != nil {
@@ -192,22 +196,30 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 						}
 					case *ast.Ident:
 						// e.g. : `type String string`
-						result.DirectIdent(unknownType, nodeType.Doc)
+						if infoErr := result.DirectIdent(unknownType, nodeType.Doc); infoErr != nil {
+							err = fmt.Errorf("error  : %v", infoErr)
+						}
 					case *ast.SelectorExpr:
 						// e.g. : `type Timer time.Ticker`
-						result.DirectSelector(unknownType, nodeType.Doc)
+						if infoErr := result.DirectSelector(unknownType, nodeType.Doc); infoErr != nil {
+							err = fmt.Errorf("error : %v", infoErr)
+						}
 					case *ast.StarExpr:
 						// e.g. : `type Timer *time.Ticker`
-						result.DirectPointer(unknownType, nodeType.Doc)
+						if infoErr := result.DirectPointer(unknownType, nodeType.Doc); infoErr != nil {
+							err = fmt.Errorf("error : %v", infoErr)
+						}
 					default:
-						log.Fatalf("Have you modified the filter ? Unhandled : %#v\n", unknownType)
+						err = fmt.Errorf("have you modified the filter ? Unhandled : %#v\n", unknownType)
 					}
 				}
 			case token.VAR, token.CONST:
 				for _, spec := range nodeType.Specs {
 					switch vl := spec.(type) {
 					case *ast.ValueSpec:
-						result.ReadVariablesInfo(spec, vl)
+						if infoErr := result.ReadVariablesInfo(spec, vl); infoErr != nil {
+							err = infoErr
+						}
 					}
 				}
 			}
