@@ -1,6 +1,7 @@
 <playground>
 	<style>
 		.template {
+			margin-left: 20px;
 			display: flex;
 			flex: 1 100%;
 			flex-direction: column;
@@ -13,7 +14,6 @@
 			display: flex;
 			flex: 1 100%;
 			flex-direction: column;
-			margin-left: 20px;
 		}
 		.message {
 			flex-shrink: 0;
@@ -40,10 +40,14 @@
 			align-content: stretch;
 			margin-top: 10px;
 		}
-		iframe {
-			border: 0;
-			display: flex;
-			flex: 1;
+		.CodeMirror{
+			border: 1px solid #eee;
+			position:absolute;
+			top:0;
+			bottom:0;
+			left:0;
+			right:0;
+			height:100%;
 		}
 	</style>
 	<div class='preview'>
@@ -54,38 +58,43 @@
 		</div>
 		<div class="ui bottom tab" data-tab="source">
 			<div class='tab-body'>
-				<p>Source code will be used to render the preview - must be valid Go code</p>
+				<p>Input source code used for generation:</p>
 				<codetextarea id="source"
 							  placeholder="Go source code"
-							  source={state.sourceCode}
+							  parent="{this}"
 							  change={render}
 							  busy={!state.sourceLoaded}
+							  language="text/x-go"
 							  class='box'>
 				</codetextarea>
 			</div>
 		</div>
 		<div class="ui bottom tab active" data-tab="preview">
 			<div class='tab-body'>
+				<p>Generated source:</p>
 				<codetextarea id="preview"
 							  placeholder="The preview will render here once you have entered some source, and a template."
-							  source={state.previewCode}
+							  parent="{this}"
 							  readonly='true'
+							  language="text/x-go"
 							  busy={state.previewBusy}
-							  class='box'></codetextarea>
+							  class='box'>
+				</codetextarea>
 			</div>
 		</div>
 	</div>
-	<div class='template' style="border:3px solid blue">
+	<div class='template'>
 		<div class='ui message' if={state.hasTemplateMessage}>{state.templateMessage}</div>
 		<div class="ui top secondary pointing menu">
 			<a class="active item" data-tab="template">Template</a>
 		</div>
 		<div class="ui bottom tab active" data-tab="template">
 			<div class='tab-body'>
-				<p>Go Template:</p>
+				<p>Go template used for generation:</p>
 				<codetextarea id="template"
 							  placeholder='Template'
-							  source={state.templateCode}
+							  parent="{this}"
+							  language="text/x-go"
 							  change={render}
 							  busy={!state.templateLoaded}
 							  class='box'>
@@ -107,7 +116,7 @@
 				sourceMessage:"please wait, loading source...",
 				sourceCode:"",
 				sourceLoaded:false,
-				previewCode:"Nothing to preview []",
+				previewCode:"Nothing to preview",
 				previewBusy:true,
 				firstPreview:true,
 				jsonPayload:{template:"",source:""}
@@ -124,16 +133,11 @@
 			this.render("","")
 		},
 		onMounted() {
-			this.menu = $('.menu .item', this.root)
+			this.menu = $('.menu .item')
 			this.menu.tab()
-
-			this.linkmenu = $('.link.menu .item', this.root)
-
-			this.items = this.linkmenu.click(function(e){
-				console.log("clicked item", e)
-				this.items.removeClass('active')
-				$(e.target).addClass('active')
-			}.bind(this))
+			var that = this
+			// this fixes a bug for code mirror (doesn't show content when it was hidden - 'update' which will 'refresh')
+			this.menu.on('click', function(event){ that.update() })
 
 			$.ajax({
 				type: "get",
@@ -184,6 +188,14 @@
 				this.state.jsonPayload.sourceChanged = true
 			}
 			this.state.previewBusy = true
+			if (this.state.hasTemplateMessage){
+				this.state.hasTemplateMessage = false
+				this.state.templateMessage = ""
+			}
+			if (this.state.hasSourceMessage){
+				this.state.hasSourceMessage = false
+				this.state.sourceMessage = ""
+			}
 			$.ajax({
 				type: 'post',
 				url: "/stroo-it",
@@ -194,6 +206,7 @@
 					this.state.previewCode = response.result
 				}.bind(this),
 				error: function(res){
+					console.log("error", res.responseJSON)
 					switch (res.responseJSON.type){
 					//Json           ErrorType = 1
 						case 1:
@@ -201,10 +214,12 @@
 					//TemplaParse    ErrorType = 2
 						case 2:
 							this.state.hasTemplateMessage = true
-							this.state.templateMessage = res.responseJSON.error
+							this.state.templateMessage = res.responseJSON.errorMessage
 						break
 					//BadTempProject ErrorType = 3
 						case 3:
+							this.state.hasSourceMessage = true
+							this.state.sourceMessage = res.responseJSON.errorMessage
 						break
 					//PackaLoad      ErrorType = 4
 						case 4:
@@ -221,16 +236,17 @@
 					//TemplExe       ErrorType = 8
 						case 8:
 							this.state.hasTemplateMessage = true
-							this.state.templateMessage = res.responseJSON.error
+							this.state.templateMessage = res.responseJSON.errorMessage
 						break
 					//BadFormat      ErrorType = 9
 						case 9:
 							this.state.hasTemplateMessage = true
-							this.state.templateMessage = res.responseJSON.error
+							this.state.templateMessage = res.responseJSON.errorMessage
 						break
 					// ???
 						default:
-						console.log("preview error", res.responseJSON)
+							this.state.hasSourceMessage = true
+							this.state.sourceMessage = "unknown error : "+JSON.stringify(res.responseJSON)
 					}
 				}.bind(this),
 				complete: function(){

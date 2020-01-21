@@ -25,12 +25,10 @@
 				text-align: right;
 				margin-top: 20px;
 			}
-
 			.playground {
 				display: flex;
 				flex: 1 auto;
 			}
-
 			.ui.form textarea:not([rows]) {
 				max-height: unset;
 			}
@@ -79,11 +77,15 @@
 			</div>
 		</footer>
 	</div>
-	<script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
-	<script src="https://cdn.jsdelivr.net/npm/riot@4/riot+compiler.min.js"></script>
-	<script src="https://cdn.jsdelivr.net/npm/clipboard-js@0.3.6/clipboard.min.js"></script>
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/semantic-ui@2.4.2/dist/semantic.min.css">
-	<script src="https://cdn.jsdelivr.net/npm/semantic-ui@2.4.2/dist/semantic.min.js"></script>
+	<link rel="stylesheet" href="/semantic-2.4.2.css">
+	<link rel="stylesheet" href="/darcula-5.51.0.css">
+	<link rel="stylesheet" href="/codemirror-5.51.0.css">
+	<script src="/jquery-3.4.1.js"></script>
+	<script src="/semantic-2.4.2.js"></script>
+	<script src="/codemirror-5.51.0.js"></script>
+	<script src="/go.js"></script>
+	<script src="/matchbrackets.js"></script>
+	<script src="/riotcompiler-4.8.7.js"></script>
 	<script>
 	(async function main() {
 		await riot.compile()

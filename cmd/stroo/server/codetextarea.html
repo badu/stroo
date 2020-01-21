@@ -14,61 +14,86 @@
 		.wrapper .busy {
 			flex-grow: 1;
 		}
-		.codeTextArea {
-			min-height: 1em !important;
-			max-height: unset  !important;
-			font-family: monospace;
-			resize: none !important;
-			border: none !important;
-			top: -15px !important;
-			background-color: #FFD !important;
-		}
-		.codeTextArea[readonly="readonly"] {
-			background-color: #eee !important;
+		.codeArea {
+			flex:1 1 auto;
+			margin-top:0;
+			height:100%;
+			position:relative;
 		}
 	</style>
 	<div class='wrapper'>
-		<div class='busy ui basic segment' style="border:3px solid red" if={state.busy}>
+		<div class='busy ui basic segment' if={state.busy}>
 			<div class="ui active loader"></div>
 			busy={state.busy}
 			placeholder={state.placeHolder}
 			readonly={state.readonly}
 		</div>
-		<textarea class='codeTextArea'
-				  show={!state.busy}
-				  placeholder={state.placeHolder}
-				  value={state.source}
-				  readonly={state.readonly}
-				  onkeyup={onKeyup}>
-		</textarea>
+		<div class="codeArea" show={!state.busy}>
+			<textarea id="code_{props.id}"></textarea>
+		</div>
 	</div>
 	<script>
 	export default {
 		onBeforeMount(props, state) {
 			// initial state
 			this.state = {
-				readonly:props.readonly,
+				readonly:props.readonly == undefined? false : true,
 				busy:props.busy,
 				placeHolder:props.placeholder,
-				source:props.source,
-				currentSource:""
 			}
 		},
+		onMounted(){
+			this.codeMirror = CodeMirror.fromTextArea(
+				document.getElementById("code_"+this.props.id),
+				{
+					lineNumbers: true,
+					mode: this.props.language,
+					lineWrapping: true,
+					autoRefresh:true,
+					matchBrackets: true,
+					theme: "darcula",
+					readOnly: this.props.readonly == undefined? false : true,
+
+				},
+			)
+			this.codeMirror.setValue(this.state.placeHolder)
+			var cachedTimeout = undefined
+			var changeHandler = this.props.change
+			var id = this.props.id
+			var currentSource = ""
+			this.codeMirror.on('change', function(who, event){
+				if (event.origin != "setValue"){
+					//console.log('event', event)
+					currentSource = who.getValue()
+					clearTimeout(cachedTimeout)
+					cachedTimeout = setTimeout(function(){changeHandler(id, currentSource)}, 1000) // wait a second
+				}
+			})
+        },
 		onBeforeUpdate(){
-			this.state = {
-				readonly:this.props.readonly,
-				busy:this.props.busy,
-				placeHolder:this.props.placeholder,
-				source:this.props.source
+			var parentState = this.props.parent.state
+			var unchanged = this.codeMirror.getValue() == this.state.placeHolder
+			// it turns out that I don't know that much RiotJs
+			this.state.busy = this.props.busy
+			if (this.props.id == "template" && unchanged){
+				// code mirror crashes if setting value to undefined
+				if (parentState.templateCode != undefined && parentState.templateCode != ""){
+					this.codeMirror.setValue(parentState.templateCode)
+				}
+			} else if (this.props.id == "source" && unchanged){
+				// same as above
+				if (parentState.sourceCode != undefined && parentState.sourceCode != ""){
+					this.codeMirror.setValue(parentState.sourceCode)
+				}
+			} else if (this.props.id == "preview"){
+				// update everytime
+				this.codeMirror.setValue(parentState.previewCode)
 			}
 		},
-		onKeyup(ev) {
-			this.currentSource = ev.target.value
-			clearTimeout(this.state.cacheTimeout)
-			this.state.cacheTimeout = setTimeout(this.dispatch, 500)
-		},
-		dispatch() {
-			this.props.change(this.props.id, this.currentSource)
+		onUpdated(){
+			// this fixes a bug for code mirror (doesn't show content when it was hidden)
+			var cm = this.codeMirror
+			setTimeout(function(){cm.refresh()}, 100)
 		}
 	}
 	</script>
