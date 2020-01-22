@@ -19,6 +19,7 @@ type PackageInfo struct {
 	Types      TypesSlice
 	Interfaces Interfaces
 	TypesInfo  *types.Info
+	Imports    []string
 	PrintDebug bool
 }
 
@@ -254,8 +255,10 @@ func (pkg *PackageInfo) ReadSelector(sel *ast.SelectorExpr, info *FieldInfo, com
 			log.Printf("[error] in reading selector %q while reading ident : %v", info.Name, err)
 			return fmt.Errorf("error reading selector : %v", err)
 		}
+	} else {
+		log.Printf("Possible error in %q : *ast.SelectorExpr.X is not *ast.Ident : %#v", info.Name, sel)
 	}
-	return nil //fmt.Errorf("*ast.SelectorExpr.X is not *ast.Ident : %#v", info)
+	return nil
 }
 
 func (pkg *PackageInfo) ReadPointer(ptr *ast.StarExpr, info *FieldInfo, comment *ast.CommentGroup) error {

@@ -90,3 +90,7 @@ type ShopCart struct {
 	Taxes                    *Taxes                           `json:"appliedTaxes"`             // pointer to slice
 	ArrayOfPointerToImport   Times                            `json:"arrayOfPtrToTimeDotTime"`  // slice of fields from another package
 }
+
+type Service interface {
+	Store(*ShopCart) (*ShopCart, error)
+}

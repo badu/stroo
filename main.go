@@ -163,6 +163,9 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 	if !ok {
 		log.Fatalf("Inspector is not (*inspector.Inspector)")
 	}
+	for _, imprt := range pass.Pkg.Imports() {
+		result.Imports = append(result.Imports, imprt.Path())
+	}
 	result.TypesInfo = pass.TypesInfo // exposed just in case someone wants to get wild
 	inspResult.Preorder(nodeFilter, func(node ast.Node) {
 		if err != nil {

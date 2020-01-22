@@ -12,6 +12,7 @@ import (
 	"go/parser"
 	"go/token"
 	"golang.org/x/tools/go/packages"
+	"golang.org/x/tools/imports"
 	"io"
 	"io/ioutil"
 	"log"
@@ -151,7 +152,11 @@ func (m MalformedRequest) Error() string {
 
 var InvalidGoSource = MalformedRequest{Type: BadTempProject, Status: http.StatusBadRequest}
 var InvalidTypes = MalformedRequest{Type: NoTypes, Status: http.StatusBadRequest}
+var InvalidPackage = MalformedRequest{Type: PackaLoad, Status: http.StatusBadRequest}
 var InvalidAnalysis = MalformedRequest{Type: Packalyse, Status: http.StatusBadRequest}
+var InvalidFormat = MalformedRequest{Type: BadFormat, Status: http.StatusBadRequest}
+var InvalidTemplate2 = MalformedRequest{Type: TemplaParse, Status: http.StatusBadRequest}
+var InvalidTemplate = MalformedRequest{Type: TemplExe, Status: http.StatusBadRequest}
 
 func respond(w http.ResponseWriter, data interface{}, optionalMessage ...string) {
 	if err, ok := data.(error); ok {
@@ -189,6 +194,26 @@ func respond(w http.ResponseWriter, data interface{}, optionalMessage ...string)
 			if len(optionalMessage) == 1 {
 				typedError.ErrorMessage = optionalMessage[0]
 			}
+		case errors.Is(err, InvalidFormat):
+			typedError = InvalidFormat
+			if len(optionalMessage) == 1 {
+				typedError.ErrorMessage = optionalMessage[0]
+			}
+		case errors.Is(err, InvalidTemplate):
+			typedError = InvalidTemplate
+			if len(optionalMessage) == 1 {
+				typedError.ErrorMessage = optionalMessage[0]
+			}
+		case errors.Is(err, InvalidTemplate2):
+			typedError = InvalidTemplate2
+			if len(optionalMessage) == 1 {
+				typedError.ErrorMessage = optionalMessage[0]
+			}
+		case errors.Is(err, InvalidPackage):
+			typedError = InvalidPackage
+			if len(optionalMessage) == 1 {
+				typedError.ErrorMessage = optionalMessage[0]
+			}
 		default:
 			log.Printf("Unhandled error ? %T %#v", data, data)
 			typedError = MalformedRequest{
@@ -220,7 +245,6 @@ type previewResponse struct {
 }
 
 // TODO : allow multiple packages, separated by something (e.g. commented "---")
-// TODO : provide multiple types of errors, so we can track line numbers and things
 func strooHandler(command *Command) http.HandlerFunc {
 
 	var cachedResult *Code
@@ -235,7 +259,7 @@ func strooHandler(command *Command) http.HandlerFunc {
 		// template is more likely to change : we're processing it first
 		tmpTemplate, err := template.New("template").Funcs(DefaultFuncMap()).Parse(request.Template)
 		if err != nil {
-			respond(w, MalformedRequest{ErrorMessage: err.Error(), Type: TemplaParse, Status: http.StatusNoContent})
+			respond(w, InvalidTemplate2, err.Error())
 			return
 		}
 
@@ -252,7 +276,7 @@ func strooHandler(command *Command) http.HandlerFunc {
 			// prepare a temp project
 			tempProj, err := CreateTempProj([]TemporaryPackage{{Name: "playground", Files: map[string]interface{}{"file.go": request.Source}}})
 			if err != nil {
-				respond(w, MalformedRequest{ErrorMessage: err.Error(), Type: BadTempProject})
+				respond(w, InvalidGoSource, err.Error())
 				return
 			}
 			// setup cleanup, so temporary files and folders gets deleted
@@ -262,7 +286,7 @@ func strooHandler(command *Command) http.HandlerFunc {
 			// load package using the old way
 			thePackages, err := packages.Load(tempProj.Config, fmt.Sprintf("file=%s", tempProj.File("playground", "file.go")))
 			if err != nil {
-				respond(w, MalformedRequest{ErrorMessage: err.Error(), Type: PackaLoad})
+				respond(w, InvalidPackage, err.Error())
 				return
 			}
 			if len(thePackages) != 1 {
@@ -282,7 +306,6 @@ func strooHandler(command *Command) http.HandlerFunc {
 			if len(tempCommand.Result.Types) >= 1 {
 				firstType = tempCommand.Result.Types[0]
 			} else {
-				log.Printf("Result : %#v\n", tempCommand.Result)
 				// TODO : allow no types selected - might just want to work with interfaces
 				respond(w, InvalidTypes, fmt.Sprintf("%d types found. please declare a type", len(tempCommand.Result.Types)))
 				return
@@ -295,23 +318,31 @@ func strooHandler(command *Command) http.HandlerFunc {
 				tmpl:        tmpTemplate,
 				Main:        TypeWithRoot{T: firstType},
 			}
+			for _, imprt := range tempCommand.Result.Imports {
+				cachedResult.AddToImports(imprt)
+			}
 			cachedResult.Main.D = cachedResult
 		}
 
 		// finally, we're processing the template over the result
 		var buf bytes.Buffer
 		if err := tmpTemplate.Execute(&buf, cachedResult); err != nil {
-			respond(w, MalformedRequest{ErrorMessage: err.Error(), Type: TemplExe})
+			respond(w, InvalidTemplate, err.Error())
 			return
 		}
 		formatted, err := format.Source(buf.Bytes())
 		if err != nil {
 			log.Printf("bad format error : %v\nGo source:\n%s\n", err, buf.String())
-			respond(w, MalformedRequest{ErrorMessage: err.Error(), Type: BadFormat})
+			respond(w, InvalidFormat, err.Error())
 			return
 		}
-		log.Println("ok")
-		response := previewResponse{Result: string(formatted)}
+		optImports, err := imports.Process("playground", formatted, nil)
+		if err != nil {
+			log.Printf("optimize imports error : %v\nGo formatted source:\n%s\n", err, formatted)
+			respond(w, InvalidFormat, err.Error())
+			return
+		}
+		response := previewResponse{Result: string(optImports)}
 		respond(w, response)
 	}
 }
