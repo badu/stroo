@@ -226,8 +226,10 @@ func (pkg *PackageInfo) ReadIdent(ident *ast.Ident, info *FieldInfo, comment *as
 		info.Kind = ident.Name
 		obj, err := pkg.FieldLookupAndFill(ident.Name, info)
 		if obj == nil {
+			log.Printf("[error] in %q while processing ident : %v", info.Name, err)
 			return fmt.Errorf("%q not found while processing ident %#v", ident.Name, info)
 		} else if err != nil {
+			log.Printf("[error] in %q while processing ident not found : %v", info.Name, err)
 			return fmt.Errorf("%q processing ident with error : %v", ident.Name, err)
 		}
 	}
@@ -249,10 +251,11 @@ func (pkg *PackageInfo) ReadSelector(sel *ast.SelectorExpr, info *FieldInfo, com
 			log.Printf("SelectorExpr : %q.%q", info.Package, info.Kind)
 		}
 		if err := pkg.ReadIdent(ident, info, comment); err != nil {
+			log.Printf("[error] in reading selector %q while reading ident : %v", info.Name, err)
 			return fmt.Errorf("error reading selector : %v", err)
 		}
 	}
-	return fmt.Errorf("*ast.SelectorExpr.X is not *ast.Ident")
+	return nil //fmt.Errorf("*ast.SelectorExpr.X is not *ast.Ident : %#v", info)
 }
 
 func (pkg *PackageInfo) ReadPointer(ptr *ast.StarExpr, info *FieldInfo, comment *ast.CommentGroup) error {
@@ -263,11 +266,13 @@ func (pkg *PackageInfo) ReadPointer(ptr *ast.StarExpr, info *FieldInfo, comment 
 	switch ptrType := ptr.X.(type) {
 	case *ast.Ident:
 		if err := pkg.ReadIdent(ptrType, info, comment); err != nil {
+			log.Printf("[error] in reading pointer %q while reading ident : %v", info.Name, err)
 			return fmt.Errorf("error reading selector : %v", err)
 		}
 	case *ast.SelectorExpr:
 		// fields from other packages
 		if err := pkg.ReadSelector(ptrType, info, comment); err != nil {
+			log.Printf("[error] in reading pointer %q while reading selector : %v", info.Name, err)
 			return fmt.Errorf("error reading selector : %v", err)
 		}
 	default:
@@ -285,7 +290,7 @@ func (pkg *PackageInfo) ReadStructInfo(astSpec *ast.TypeSpec, comment *ast.Comme
 		Comment: comment,
 	}
 	if pkg.PrintDebug {
-		log.Printf("Traversing struct %q==", astSpec.Name.Name)
+		log.Printf("%q: Traversing struct ", astSpec.Name.Name)
 	}
 	obj, found := pkg.TypesInfo.Defs[astSpec.Name]
 	if found {
@@ -302,40 +307,45 @@ func (pkg *PackageInfo) ReadStructInfo(astSpec *ast.TypeSpec, comment *ast.Comme
 			switch fieldType := field.Type.(type) {
 			case *ast.StarExpr:
 				if err := pkg.ReadPointer(fieldType, &embeddedField, nil); err != nil {
+					log.Printf("[error] in %q while reading embed pointer : %v", info.Name, err)
 					return err
 				}
 			case *ast.Ident:
 				if err := pkg.ReadIdent(fieldType, &embeddedField, nil); err != nil {
-					return fmt.Errorf("error reading selector : %v", err)
+					log.Printf("[error] in %q while reading embed ident : %v", info.Name, err)
+					return fmt.Errorf("error reading ident : %v", err)
 				}
 			case *ast.SelectorExpr:
 				// fields from other packages
 				if err := pkg.ReadSelector(fieldType, &embeddedField, nil); err != nil {
+					log.Printf("[error] in %q while reading embed selector : %v", info.Name, err)
 					return fmt.Errorf("error reading selector : %v", err)
 				}
 			default:
-				log.Printf("unknown embedded field %q of type %T", embeddedField.Kind, fieldType)
+				log.Printf("[error] in %q unknown embedded field %q of type %T", info.Name, embeddedField.Kind, fieldType)
 				// not allowed
 				return fmt.Errorf(ErrNotImplemented, fieldType, info.Name)
 			}
 			embeddedField.Name = embeddedField.Kind
 			if pkg.PrintDebug {
-				log.Printf("embedded field %q", embeddedField.Name)
+				log.Printf("%q: embedded field %q", info.Name, embeddedField.Name)
 			}
 			info.Fields = append(info.Fields, &embeddedField)
 			continue
 		}
 		newField := FieldInfo{Name: field.Names[0].Name, IsExported: field.Names[0].IsExported(), Comment: field.Comment}
 		if pkg.PrintDebug {
-			log.Printf("inspecting %q %T", newField.Name, field.Type)
+			log.Printf("%q: inspecting %q %T", info.Name, newField.Name, field.Type)
 		}
 		switch fieldType := field.Type.(type) {
 		case *ast.StarExpr:
 			if err := pkg.ReadPointer(fieldType, &newField, nil); err != nil {
+				log.Printf("[error] in %q while reading pointer : %v", info.Name, err)
 				return err
 			}
 		case *ast.Ident:
 			if err := pkg.ReadIdent(fieldType, &newField, nil); err != nil {
+				log.Printf("[error] in %q while reading ident : %v", info.Name, err)
 				return fmt.Errorf("error reading selector : %v", err)
 			}
 		case *ast.MapType:
@@ -347,6 +357,7 @@ func (pkg *PackageInfo) ReadStructInfo(astSpec *ast.TypeSpec, comment *ast.Comme
 		case *ast.SelectorExpr:
 			// fields from other packages
 			if err := pkg.ReadSelector(fieldType, &newField, nil); err != nil {
+				log.Printf("[error] in %q while reading selector : %v", info.Name, err)
 				return fmt.Errorf("error reading selector : %v", err)
 			}
 		default:
@@ -357,10 +368,17 @@ func (pkg *PackageInfo) ReadStructInfo(astSpec *ast.TypeSpec, comment *ast.Comme
 			var err error
 			newField.Tags, err = ParseTags(field.Tag.Value)
 			if err != nil {
+				log.Printf("[error] in %q while parsing tags : %v", info.Name, err)
 				return fmt.Errorf("error parsing tags : %v of field named %q input = %s", err.Error(), newField.Name, field.Tag.Value)
 			}
 		}
+		if pkg.PrintDebug {
+			log.Printf("%q: adding field %q", newField.Name, info.Name)
+		}
 		info.Fields = append(info.Fields, &newField)
+	}
+	if pkg.PrintDebug {
+		log.Printf("%q: adding to Types", info.Name)
 	}
 	pkg.Types = append(pkg.Types, &info)
 	return nil

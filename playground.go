@@ -5,17 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	_ "github.com/badu/stroo/statik"
 	"github.com/gorilla/mux"
+	"github.com/rakyll/statik/fs"
 	"go/format"
 	"go/parser"
 	"go/token"
 	"golang.org/x/tools/go/packages"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"text/template"
-	"time"
 )
 
 const (
@@ -25,8 +28,8 @@ const (
 	codeTextAreaHTML  = "/codetextarea.html"
 	playgroundHTML    = "/playground.html"
 	favico            = "/favicon.ico"
-	exampleGo         = "/example-source.go"
-	exampleTemplate   = "/example-template.tpl"
+	exampleGo         = "/example-source"
+	exampleTemplate   = "/example-template"
 	jQuery            = "/jquery-3.4.1.js"
 	semanticJs        = "/semantic-2.4.2.js"
 	semanticCss       = "/semantic-2.4.2.css"
@@ -36,43 +39,87 @@ const (
 	riotJs            = "/riotcompiler-4.8.7.js"
 	matchBracketsJs   = "/matchbrackets.js"
 	goJs              = "/go.js"
+	font1             = "/themes/default/assets/fonts/icons.woff2"
+	font2             = "/themes/default/assets/fonts/icons.woff"
+	font3             = "/themes/default/assets/fonts/icons.ttf"
 )
 
-func filesHandler(workingDir string) http.HandlerFunc {
-	// prepare index.html
+func provideFile(w http.ResponseWriter, statikFS http.FileSystem, path string) {
+	r, err := statikFS.Open(path)
+	if err != nil {
+		log.Printf("error finding file : %q", path)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	defer r.Close()
+	contents, err := ioutil.ReadAll(r)
+	if err != nil {
+		log.Printf("error reading file : %q", path)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(contents)
+}
+
+func indexTemplate(statikFS http.FileSystem) *template.Template {
+	r, err := statikFS.Open(indexHTML)
+	if err != nil {
+		log.Fatalf("error finding file : %q", indexHTML)
+	}
+	defer r.Close()
+	contents, err := ioutil.ReadAll(r)
+	if err != nil {
+		log.Fatalf("error reading file : %q", indexHTML)
+	}
+	index, err := template.New("index.html").Parse(string(contents))
+	if err != nil {
+		log.Fatalf("error parsing template : %q", indexHTML)
+	}
+	return index
+}
+
+func indexTemplateLocal(workingDir string) *template.Template {
 	index, err := template.ParseFiles(workingDir + storageFolder + indexHTML)
 	if err != nil {
 		log.Fatalf("Error parsing template : %v\n working dir is = %q", err, workingDir)
 	}
+	return index
+}
+
+func filesHandler(workingDir string, statikFS http.FileSystem) http.HandlerFunc {
 	type pageinfo struct {
 		Version string
 	}
 	info := pageinfo{
 		Version: playgroundVersion,
 	}
+	// prepare index.html
+	//indexTemplate := indexTemplateLocal(workingDir)
+	indexTemplate := indexTemplate(statikFS)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case indexHTML, "/":
-			if err := index.ExecuteTemplate(w, "index", info); err != nil {
+			if err := indexTemplate.ExecuteTemplate(w, "index", info); err != nil {
 				log.Printf("error producing index template : %v", err)
 				return
 			}
 		case codeTextAreaHTML, playgroundHTML, jQuery, semanticJs, semanticCss, codeMirrorCss, codeMirrorTheme, codeMirrorJs, riotJs, goJs, matchBracketsJs:
-			http.ServeFile(w, r, workingDir+storageFolder+"/"+r.URL.Path)
-		case "/themes/default/assets/fonts/icons.woff2":
-			http.ServeFile(w, r, workingDir+storageFolder+"/assets/icons.woff2")
-		case "/themes/default/assets/fonts/icons.woff":
-			http.ServeFile(w, r, workingDir+storageFolder+"/assets/icons.woff")
-		case "/themes/default/assets/fonts/icons.ttf":
-			http.ServeFile(w, r, workingDir+storageFolder+"/assets/icons.ttf")
-		case "/example-source":
-			time.Sleep(1 * time.Second)
-			http.ServeFile(w, r, workingDir+storageFolder+exampleGo)
-		case "/example-template":
-			http.ServeFile(w, r, workingDir+storageFolder+exampleTemplate)
+			provideFile(w, statikFS, r.URL.Path)
+			//http.ServeFile(w, r, workingDir+storageFolder+"/"+r.URL.Path)
+		case font1, font2, font3:
+			provideFile(w, statikFS, "/assets/"+strings.Replace(r.URL.Path, "/themes/default/assets/fonts/", "", -1))
+			//http.ServeFile(w, r, workingDir+storageFolder+"/assets/icons.woff2")
+		case exampleGo:
+			provideFile(w, statikFS, r.URL.Path+".go")
+			//http.ServeFile(w, r, workingDir+storageFolder+exampleGo)
+		case exampleTemplate:
+			provideFile(w, statikFS, r.URL.Path+".tpl")
+			//http.ServeFile(w, r, workingDir+storageFolder+exampleTemplate)
 		case favico:
 		// just ignore it
 		default:
+			w.WriteHeader(http.StatusNotFound)
 			log.Printf("Requested UNKNOWN URL : %q", r.URL.Path)
 		}
 	})
@@ -102,11 +149,12 @@ func (m MalformedRequest) Error() string {
 	return m.ErrorMessage
 }
 
-var InvalidGoSource = MalformedRequest{Type: BadTempProject}
+var InvalidGoSource = MalformedRequest{Type: BadTempProject, Status: http.StatusBadRequest}
+var InvalidTypes = MalformedRequest{Type: NoTypes, Status: http.StatusBadRequest}
+var InvalidAnalysis = MalformedRequest{Type: Packalyse, Status: http.StatusBadRequest}
 
 func respond(w http.ResponseWriter, data interface{}, optionalMessage ...string) {
 	if err, ok := data.(error); ok {
-		log.Printf("Yes, error : %v - %T", err, err)
 		var (
 			typedError         MalformedRequest
 			syntaxError        *json.SyntaxError
@@ -127,24 +175,30 @@ func respond(w http.ResponseWriter, data interface{}, optionalMessage ...string)
 				Type:         Json,
 			}
 		case errors.Is(err, InvalidGoSource):
-			typedError = MalformedRequest{
-				Status: http.StatusBadRequest,
-				Type:   InvalidGoSource.Type,
+			typedError = InvalidGoSource
+			if len(optionalMessage) == 1 {
+				typedError.ErrorMessage = optionalMessage[0]
 			}
+		case errors.Is(err, InvalidTypes):
+			typedError = InvalidTypes
+			if len(optionalMessage) == 1 {
+				typedError.ErrorMessage = optionalMessage[0]
+			}
+		case errors.Is(err, InvalidAnalysis):
+			typedError = InvalidAnalysis
 			if len(optionalMessage) == 1 {
 				typedError.ErrorMessage = optionalMessage[0]
 			}
 		default:
+			log.Printf("Unhandled error ? %T %#v", data, data)
 			typedError = MalformedRequest{
 				ErrorMessage: err.Error(),
 				Status:       http.StatusBadRequest,
 				Type:         Json,
 			}
-			return
 		}
 		data = typedError
 		w.WriteHeader(typedError.Status)
-		log.Printf("TypedError : %#v", typedError)
 	} else {
 		w.WriteHeader(http.StatusOK) // status is ok
 	}
@@ -177,12 +231,14 @@ func strooHandler(command *Command) http.HandlerFunc {
 			respond(w, err)
 			return
 		}
+
 		// template is more likely to change : we're processing it first
 		tmpTemplate, err := template.New("template").Funcs(DefaultFuncMap()).Parse(request.Template)
 		if err != nil {
 			respond(w, MalformedRequest{ErrorMessage: err.Error(), Type: TemplaParse, Status: http.StatusNoContent})
 			return
 		}
+
 		// we're using cached result, so we don't stress the disk for nothing
 		if request.SourceChanged || cachedResult == nil {
 			// first we check the correctness of the source, so we don't write down for nothing
@@ -216,8 +272,9 @@ func strooHandler(command *Command) http.HandlerFunc {
 			// create a temporary command to analyse the loaded package
 			tempCommand := NewCommand(DefaultAnalyzer())
 			tempCommand.TestMode = command.TestMode
+			//tempCommand.DebugPrint = true
 			if err := tempCommand.Analyse(thePackages[0]); err != nil {
-				respond(w, MalformedRequest{ErrorMessage: err.Error(), Type: Packalyse})
+				respond(w, InvalidAnalysis, err.Error())
 				return
 			}
 			// convention : by default, the upper most type struct is provided to the code builder
@@ -225,20 +282,20 @@ func strooHandler(command *Command) http.HandlerFunc {
 			if len(tempCommand.Result.Types) >= 1 {
 				firstType = tempCommand.Result.Types[0]
 			} else {
+				log.Printf("Result : %#v\n", tempCommand.Result)
 				// TODO : allow no types selected - might just want to work with interfaces
-				respond(w, MalformedRequest{ErrorMessage: "no types found. please a a type", Type: NoTypes})
+				respond(w, InvalidTypes, fmt.Sprintf("%d types found. please declare a type", len(tempCommand.Result.Types)))
 				return
 			}
 			// create code
-			result := Code{
+			cachedResult = &Code{
 				PackageInfo: tempCommand.Result,
 				CodeConfig:  tempCommand.CodeConfig,
 				keeper:      make(map[string]interface{}),
 				tmpl:        tmpTemplate,
 				Main:        TypeWithRoot{T: firstType},
 			}
-			result.Main.D = &result
-			cachedResult = &result
+			cachedResult.Main.D = cachedResult
 		}
 
 		// finally, we're processing the template over the result
@@ -247,13 +304,13 @@ func strooHandler(command *Command) http.HandlerFunc {
 			respond(w, MalformedRequest{ErrorMessage: err.Error(), Type: TemplExe})
 			return
 		}
-
 		formatted, err := format.Source(buf.Bytes())
 		if err != nil {
 			log.Printf("bad format error : %v\nGo source:\n%s\n", err, buf.String())
 			respond(w, MalformedRequest{ErrorMessage: err.Error(), Type: BadFormat})
 			return
 		}
+		log.Println("ok")
 		response := previewResponse{Result: string(formatted)}
 		respond(w, response)
 	}
@@ -265,9 +322,13 @@ func StartPlayground(command *Command) {
 	if err != nil {
 		log.Fatalf("could NOT obtain current workdir : %v", err)
 	}
+	statikFS, err := fs.New()
+	if err != nil {
+		log.Fatal(err)
+	}
 	router := mux.NewRouter()
 
-	router.NotFoundHandler = filesHandler(wd)
+	router.NotFoundHandler = filesHandler(wd, statikFS)
 	router.HandleFunc("/stroo-it", strooHandler(command)).Methods("POST")
 	if err := http.ListenAndServe("0.0.0.0:8080", router); err != nil {
 		log.Fatalf("error while serving : %v", err)

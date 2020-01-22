@@ -296,6 +296,9 @@ func (c *Command) Analyse(loadedPackage *packages.Package) error {
 	result := mkAction(c.CodeBuilder, loadedPackage)
 	result.exec()
 
+	if result.err != nil {
+		return result.err
+	}
 	typedResult, ok := result.result.(*PackageInfo)
 	if !ok {
 		return fmt.Errorf("error : interface not *PackageInfo")
@@ -466,6 +469,7 @@ func (a *Action) execOnce() {
 
 	var err error
 	if a.pkg.IllTyped && !a.pass.Analyzer.RunDespiteErrors {
+
 		err = fmt.Errorf("analysis skipped due to errors in package")
 	} else {
 		a.result, err = a.pass.Analyzer.Run(a.pass)
@@ -473,6 +477,8 @@ func (a *Action) execOnce() {
 			if got, want := a.ResultType(), a.pass.Analyzer.ResultType; got != want {
 				err = fmt.Errorf("internal error: on package %s, analyzer %s returned a result of type %v, but declared ResultType %v", a.pass.Pkg.Path(), a.pass.Analyzer, got, want)
 			}
+		} else {
+			log.Println("[error] : " + err.Error())
 		}
 	}
 	a.err = err

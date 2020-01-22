@@ -1,0 +1,1 @@
+statik -src=./cmd/stroo/server -f

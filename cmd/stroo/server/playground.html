@@ -210,6 +210,8 @@
 					switch (res.responseJSON.type){
 					//Json           ErrorType = 1
 						case 1:
+							this.state.hasSourceMessage = true
+							this.state.sourceMessage = res.responseJSON.errorMessage
 						break
 					//TemplaParse    ErrorType = 2
 						case 2:
@@ -223,15 +225,23 @@
 						break
 					//PackaLoad      ErrorType = 4
 						case 4:
+							this.state.hasSourceMessage = true
+							this.state.sourceMessage = res.responseJSON.errorMessage
 						break
 					//OnePackage     ErrorType = 5
 						case 5:
+							this.state.hasSourceMessage = true
+							this.state.sourceMessage = res.responseJSON.errorMessage
 						break
 					//Packalyse      ErrorType = 6
 						case 6:
+							this.state.hasSourceMessage = true
+							this.state.sourceMessage = res.responseJSON.errorMessage
 						break
 					//NoTypes        ErrorType = 7
 						case 7:
+							this.state.hasSourceMessage = true
+							this.state.sourceMessage = res.responseJSON.errorMessage
 						break
 					//TemplExe       ErrorType = 8
 						case 8:
