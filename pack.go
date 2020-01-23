@@ -12,6 +12,10 @@ var (
 	ErrNotImplemented = "%T found on %q (not implemented)"
 )
 
+type Imports struct {
+	Name string
+	Path string
+}
 type PackageInfo struct {
 	Name       string
 	Vars       Vars
@@ -19,8 +23,15 @@ type PackageInfo struct {
 	Types      TypesSlice
 	Interfaces Interfaces
 	TypesInfo  *types.Info
-	Imports    []string
+	Imports    []*Imports
 	PrintDebug bool
+}
+
+func (pkg *PackageInfo) LoadImports(fromImports []*types.Package) {
+	for _, imprt := range fromImports {
+		log.Printf("Adding %q %q to imports", imprt.Path(), imprt.Name())
+		pkg.Imports = append(pkg.Imports, &Imports{Path: imprt.Path(), Name: imprt.Name()})
+	}
 }
 
 // reads array type declaration

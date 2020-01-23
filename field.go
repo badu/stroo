@@ -18,11 +18,32 @@ type FieldInfo struct {
 	IsEmbedded  bool
 	IsImported  bool
 	IsInterface bool
-	Reference   *TypeInfo // if it's a struct, we have struct info here
 	Tags        *Tags
 	Package     string
 	PackagePath string
 	Comment     *ast.CommentGroup
+	keeper      map[string]interface{} // template authors keeps data in here, key-value, as they need
+	root        *Code
+}
+
+func (f *FieldInfo) SetRoot(doc *Code) { f.root = doc }
+func (f *FieldInfo) Root() *Code       { return f.root }
+func (f *FieldInfo) StructOrArrayString() string {
+	if f.IsArray {
+		return "array"
+	}
+	if f.IsStruct {
+		return "struct"
+	}
+	return "nor struct nor array"
+}
+
+// in case we need to print `*Something` instead of `Something`
+func (f *FieldInfo) RealKind() string {
+	if f.IsPointer {
+		return "*" + f.Kind
+	}
+	return f.Kind
 }
 
 func (f *FieldInfo) TagsByKey(name string) []string {
@@ -70,6 +91,32 @@ func (f *FieldInfo) IsInt() bool {
 		return true
 	}
 	return false
+}
+
+func (f *FieldInfo) Keeper() map[string]interface{} { return f.keeper }
+func (f *FieldInfo) Store(key string, value interface{}) bool {
+	if f.keeper == nil {
+		f.keeper = make(map[string]interface{})
+	}
+	_, has := f.keeper[key]
+	f.keeper[key] = value
+	return has
+}
+
+func (f *FieldInfo) Retrieve(key string) interface{} {
+	if f.keeper == nil {
+		f.keeper = make(map[string]interface{})
+	}
+	value, _ := f.keeper[key]
+	return value
+}
+
+func (f *FieldInfo) HasInStore(key string) bool {
+	if f.keeper == nil {
+		f.keeper = make(map[string]interface{})
+	}
+	_, has := f.keeper[key]
+	return has
 }
 
 type Fields []*FieldInfo

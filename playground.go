@@ -23,26 +23,34 @@ import (
 )
 
 const (
-	playgroundVersion = "0.0.1"
-	storageFolder     = "/server"
-	indexHTML         = "/index.html"
-	codeTextAreaHTML  = "/codetextarea.html"
-	playgroundHTML    = "/playground.html"
-	favico            = "/favicon.ico"
-	exampleGo         = "/example-source"
-	exampleTemplate   = "/example-template"
-	jQuery            = "/jquery-3.4.1.js"
-	semanticJs        = "/semantic-2.4.2.js"
-	semanticCss       = "/semantic-2.4.2.css"
-	codeMirrorTheme   = "/darcula-5.51.0.css"
-	codeMirrorJs      = "/codemirror-5.51.0.css"
-	codeMirrorCss     = "/codemirror-5.51.0.js"
-	riotJs            = "/riotcompiler-4.8.7.js"
-	matchBracketsJs   = "/matchbrackets.js"
-	goJs              = "/go.js"
-	font1             = "/themes/default/assets/fonts/icons.woff2"
-	font2             = "/themes/default/assets/fonts/icons.woff"
-	font3             = "/themes/default/assets/fonts/icons.ttf"
+	playgroundVersion = "0.0.2"
+
+	storageFolder = "/server"
+	assetsFolder  = "/assets/"
+
+	indexHTML        = "/index.html"
+	codeTextAreaHTML = "/codetextarea.html"
+	playgroundHTML   = "/playground.html"
+	favico           = "/favicon.ico"
+	exampleGo        = "/example-source"
+	exampleTemplate  = "/example-template"
+
+	jQuery          = "/jquery-3.4.1.js"
+	semanticJs      = "/semantic-2.4.2.js"
+	codeMirrorJs    = "/codemirror-5.51.0.js"
+	riotJs          = "/riotcompiler-4.8.7.js"
+	matchBracketsJs = "/matchbrackets.js"
+	goJs            = "/go.js"
+
+	semanticCss     = "/semantic-2.4.2.css"
+	codeMirrorTheme = "/darcula-5.51.0.css"
+	codeMirrorCss   = "/codemirror-5.51.0.css"
+
+	font1 = "/themes/default/assets/fonts/icons.woff2"
+	font2 = "/themes/default/assets/fonts/icons.woff"
+	font3 = "/themes/default/assets/fonts/icons.ttf"
+
+	packageName = "playground"
 )
 
 func provideFile(w http.ResponseWriter, statikFS http.FileSystem, path string) {
@@ -88,35 +96,52 @@ func indexTemplateLocal(workingDir string) *template.Template {
 	return index
 }
 
-func filesHandler(workingDir string, statikFS http.FileSystem) http.HandlerFunc {
+func filesHandler(workingDir string, statikFS http.FileSystem, testMode bool) http.HandlerFunc {
 	type pageinfo struct {
 		Version string
 	}
 	info := pageinfo{
 		Version: playgroundVersion,
 	}
+	var idxTemplate *template.Template
 	// prepare index.html
-	//indexTemplate := indexTemplateLocal(workingDir)
-	indexTemplate := indexTemplate(statikFS)
+	if testMode {
+		idxTemplate = indexTemplateLocal(workingDir)
+	} else {
+		idxTemplate = indexTemplate(statikFS)
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case indexHTML, "/":
-			if err := indexTemplate.ExecuteTemplate(w, "index", info); err != nil {
+			if err := idxTemplate.ExecuteTemplate(w, "index", info); err != nil {
 				log.Printf("error producing index template : %v", err)
 				return
 			}
-		case codeTextAreaHTML, playgroundHTML, jQuery, semanticJs, semanticCss, codeMirrorCss, codeMirrorTheme, codeMirrorJs, riotJs, goJs, matchBracketsJs:
+		case codeTextAreaHTML, playgroundHTML:
+			if testMode {
+				http.ServeFile(w, r, workingDir+storageFolder+"/"+r.URL.Path)
+			} else {
+				provideFile(w, statikFS, r.URL.Path)
+			}
+		case semanticCss, codeMirrorCss, codeMirrorTheme:
+			w.Header().Set("Content-Type", "application/css")
 			provideFile(w, statikFS, r.URL.Path)
-			//http.ServeFile(w, r, workingDir+storageFolder+"/"+r.URL.Path)
+		case jQuery, semanticJs, codeMirrorJs, riotJs, goJs, matchBracketsJs:
+			provideFile(w, statikFS, r.URL.Path)
 		case font1, font2, font3:
-			provideFile(w, statikFS, "/assets/"+strings.Replace(r.URL.Path, "/themes/default/assets/fonts/", "", -1))
-			//http.ServeFile(w, r, workingDir+storageFolder+"/assets/icons.woff2")
+			provideFile(w, statikFS, assetsFolder+strings.Replace(r.URL.Path, "/themes/default/assets/fonts/", "", -1))
 		case exampleGo:
-			provideFile(w, statikFS, r.URL.Path+".go")
-			//http.ServeFile(w, r, workingDir+storageFolder+exampleGo)
+			if testMode {
+				http.ServeFile(w, r, workingDir+storageFolder+exampleGo+".go")
+			} else {
+				provideFile(w, statikFS, exampleGo+".go")
+			}
 		case exampleTemplate:
-			provideFile(w, statikFS, r.URL.Path+".tpl")
-			//http.ServeFile(w, r, workingDir+storageFolder+exampleTemplate)
+			if testMode {
+				http.ServeFile(w, r, workingDir+storageFolder+exampleTemplate+".tpl")
+			} else {
+				provideFile(w, statikFS, exampleTemplate+".tpl")
+			}
 		case favico:
 		// just ignore it
 		default:
@@ -141,9 +166,10 @@ const (
 )
 
 type MalformedRequest struct {
-	Status       int       `json:"status"`
-	ErrorMessage string    `json:"errorMessage"`
-	Type         ErrorType `json:"type"`
+	Status        int       `json:"status"`
+	ErrorMessage  string    `json:"errorMessage"`
+	PartialSource string    `json:"partialSource"`
+	Type          ErrorType `json:"type"`
 }
 
 func (m MalformedRequest) Error() string {
@@ -196,8 +222,12 @@ func respond(w http.ResponseWriter, data interface{}, optionalMessage ...string)
 			}
 		case errors.Is(err, InvalidFormat):
 			typedError = InvalidFormat
-			if len(optionalMessage) == 1 {
+			switch len(optionalMessage) {
+			case 1:
 				typedError.ErrorMessage = optionalMessage[0]
+			case 2:
+				typedError.ErrorMessage = optionalMessage[0]
+				typedError.PartialSource = optionalMessage[1]
 			}
 		case errors.Is(err, InvalidTemplate):
 			typedError = InvalidTemplate
@@ -257,7 +287,7 @@ func strooHandler(command *Command) http.HandlerFunc {
 		}
 
 		// template is more likely to change : we're processing it first
-		tmpTemplate, err := template.New("template").Funcs(DefaultFuncMap()).Parse(request.Template)
+		tmpTemplate, err := template.New(packageName).Funcs(DefaultFuncMap()).Parse(request.Template)
 		if err != nil {
 			respond(w, InvalidTemplate2, err.Error())
 			return
@@ -267,14 +297,14 @@ func strooHandler(command *Command) http.HandlerFunc {
 		if request.SourceChanged || cachedResult == nil {
 			// first we check the correctness of the source, so we don't write down for nothing
 			fileSet := token.NewFileSet()
-			_, err := parser.ParseFile(fileSet, "playground", request.Source, parser.DeclarationErrors|parser.AllErrors)
+			_, err := parser.ParseFile(fileSet, packageName, request.Source, parser.DeclarationErrors|parser.AllErrors)
 			if err != nil {
 				respond(w, InvalidGoSource, err.Error())
 				return
 			}
 
 			// prepare a temp project
-			tempProj, err := CreateTempProj([]TemporaryPackage{{Name: "playground", Files: map[string]interface{}{"file.go": request.Source}}})
+			tempProj, err := CreateTempProj([]TemporaryPackage{{Name: packageName, Files: map[string]interface{}{"file.go": request.Source}}})
 			if err != nil {
 				respond(w, InvalidGoSource, err.Error())
 				return
@@ -284,7 +314,7 @@ func strooHandler(command *Command) http.HandlerFunc {
 
 			tempProj.Config.Mode = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedDeps | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax | packages.NeedImports
 			// load package using the old way
-			thePackages, err := packages.Load(tempProj.Config, fmt.Sprintf("file=%s", tempProj.File("playground", "file.go")))
+			thePackages, err := packages.Load(tempProj.Config, fmt.Sprintf("file=%s", tempProj.File(packageName, "file.go")))
 			if err != nil {
 				respond(w, InvalidPackage, err.Error())
 				return
@@ -296,7 +326,7 @@ func strooHandler(command *Command) http.HandlerFunc {
 			// create a temporary command to analyse the loaded package
 			tempCommand := NewCommand(DefaultAnalyzer())
 			tempCommand.TestMode = command.TestMode
-			//tempCommand.DebugPrint = true
+			tempCommand.DebugPrint = command.DebugPrint
 			if err := tempCommand.Analyse(thePackages[0]); err != nil {
 				respond(w, InvalidAnalysis, err.Error())
 				return
@@ -306,7 +336,7 @@ func strooHandler(command *Command) http.HandlerFunc {
 			if len(tempCommand.Result.Types) >= 1 {
 				firstType = tempCommand.Result.Types[0]
 			} else {
-				// TODO : allow no types selected - might just want to work with interfaces
+				// TODO : temporary -> allow no types selected - might just want to work with interfaces
 				respond(w, InvalidTypes, fmt.Sprintf("%d types found. please declare a type", len(tempCommand.Result.Types)))
 				return
 			}
@@ -314,35 +344,44 @@ func strooHandler(command *Command) http.HandlerFunc {
 			cachedResult = &Code{
 				PackageInfo: tempCommand.Result,
 				CodeConfig:  tempCommand.CodeConfig,
-				keeper:      make(map[string]interface{}),
-				tmpl:        tmpTemplate,
 				Main:        TypeWithRoot{T: firstType},
 			}
 			for _, imprt := range tempCommand.Result.Imports {
-				cachedResult.AddToImports(imprt)
+				cachedResult.AddToImports(imprt.Path)
 			}
 			cachedResult.Main.D = cachedResult
 		}
-
+		// set the template to the result (might have been changed)
+		cachedResult.tmpl = tmpTemplate
+		cachedResult.keeper = make(map[string]interface{}) // reset kept data (so we can refill it)
+		fmt.Println("Execute template")
 		// finally, we're processing the template over the result
 		var buf bytes.Buffer
 		if err := tmpTemplate.Execute(&buf, cachedResult); err != nil {
 			respond(w, InvalidTemplate, err.Error())
 			return
 		}
-		formatted, err := format.Source(buf.Bytes())
+		optImports, err := imports.Process(packageName, buf.Bytes(), nil)
 		if err != nil {
-			log.Printf("bad format error : %v\nGo source:\n%s\n", err, buf.String())
-			respond(w, InvalidFormat, err.Error())
+			//log.Printf("optimize imports error : %v\nGo formatted source:\n%s\n", err, buf.String())
+			respond(w, InvalidFormat, err.Error(), buf.String())
 			return
 		}
-		optImports, err := imports.Process("playground", formatted, nil)
+
+		formatted, err := format.Source(optImports)
 		if err != nil {
-			log.Printf("optimize imports error : %v\nGo formatted source:\n%s\n", err, formatted)
-			respond(w, InvalidFormat, err.Error())
+			//log.Printf("bad format error : %v\nGo source:\n%s\n", err, optImports)
+			respond(w, InvalidFormat, err.Error(), string(optImports))
 			return
 		}
-		response := previewResponse{Result: string(optImports)}
+
+		fmt.Printf("GenerateAndStoreLastError: %v", cachedResult.GenerateAndStoreLastError)
+		// if template execution had an "internal" error
+		if cachedResult.GenerateAndStoreLastError != nil {
+			respond(w, InvalidTemplate, cachedResult.GenerateAndStoreLastError.Error())
+		}
+
+		response := previewResponse{Result: string(formatted)}
 		respond(w, response)
 	}
 }
@@ -359,7 +398,7 @@ func StartPlayground(command *Command) {
 	}
 	router := mux.NewRouter()
 
-	router.NotFoundHandler = filesHandler(wd, statikFS)
+	router.NotFoundHandler = filesHandler(wd, statikFS, command.TestMode)
 	router.HandleFunc("/stroo-it", strooHandler(command)).Methods("POST")
 	if err := http.ListenAndServe("0.0.0.0:8080", router); err != nil {
 		log.Fatalf("error while serving : %v", err)

@@ -85,7 +85,7 @@
 				if (parentState.sourceCode != undefined && parentState.sourceCode != ""){
 					this.codeMirror.setValue(parentState.sourceCode)
 				}
-			} else if (this.props.id == "preview"){
+			} else if (this.props.id == "preview" || this.props.id == "otherPreview"){
 				// update everytime
 				this.codeMirror.setValue(parentState.previewCode)
 			}

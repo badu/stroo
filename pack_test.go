@@ -103,7 +103,7 @@ var cases = []testCase{
 			Package:     "p",
 			PackagePath: "p",
 			IsArray:     true,
-			Reference: &TypeInfo{
+			/*Reference: &TypeInfo{
 				Name:        "S",
 				Package:     "p",
 				PackagePath: "p",
@@ -115,7 +115,7 @@ var cases = []testCase{
 						IsExported: true,
 					},
 				},
-			},
+			},*/
 		},
 	}, // 12
 	{
@@ -128,7 +128,7 @@ var cases = []testCase{
 			Package:     "p",
 			PackagePath: "p",
 			IsArray:     true,
-			Reference: &TypeInfo{
+			/*Reference: &TypeInfo{
 				Name:        "S13",
 				Package:     "p",
 				PackagePath: "p",
@@ -146,7 +146,7 @@ var cases = []testCase{
 						IsExported: true,
 					},
 				},
-			},
+			},*/
 		},
 	}, // 13
 	{
@@ -160,7 +160,7 @@ var cases = []testCase{
 			IsArray:     true,
 			Package:     "p",
 			PackagePath: "p",
-			Reference: &TypeInfo{
+			/*Reference: &TypeInfo{
 				Name:        "S",
 				Package:     "p",
 				PackagePath: "p",
@@ -172,7 +172,7 @@ var cases = []testCase{
 						IsExported: true,
 					},
 				},
-			},
+			},*/
 		},
 	}, // 14
 
@@ -206,7 +206,7 @@ var cases = []testCase{
 					Kind:       "EmbeddedS",
 					IsEmbedded: true,
 					IsStruct:   true,
-					Reference: &TypeInfo{
+					/*Reference: &TypeInfo{
 						Name:        "EmbeddedS",
 						PackagePath: "p",
 						Package:     "p",
@@ -230,7 +230,7 @@ var cases = []testCase{
 								},
 							},
 						},
-					},
+					},*/
 				},
 				&FieldInfo{
 					Name:       "EmbeddedS2",
@@ -238,7 +238,7 @@ var cases = []testCase{
 					IsPointer:  true,
 					IsEmbedded: true,
 					IsStruct:   true,
-					Reference: &TypeInfo{
+					/*Reference: &TypeInfo{
 						Name:        "EmbeddedS2",
 						PackagePath: "p",
 						Package:     "p",
@@ -253,7 +253,7 @@ var cases = []testCase{
 								},
 							},
 						},
-					},
+					},*/
 				},
 				&FieldInfo{
 					Name:        "error",
@@ -316,11 +316,11 @@ var cases = []testCase{
 					Kind:       "S",
 					IsExported: true,
 					IsStruct:   true,
-					Reference: &TypeInfo{
+					/*Reference: &TypeInfo{
 						Name:        "S",
 						Package:     "p",
 						PackagePath: "p",
-					},
+					},*/
 				},
 				&FieldInfo{
 					Name:       "Itemz",
@@ -330,7 +330,7 @@ var cases = []testCase{
 						&Tag{Key: "json", Name: "itmz"},
 					},
 					IsArray: true,
-					Reference: &TypeInfo{
+					/*Reference: &TypeInfo{
 						Name: "Item",
 						Fields: Fields{
 							&FieldInfo{
@@ -343,7 +343,7 @@ var cases = []testCase{
 								},
 							},
 						},
-					},
+					},*/
 				},
 				&FieldInfo{
 					Name:       "Pricez",
@@ -353,7 +353,7 @@ var cases = []testCase{
 						&Tag{Key: "json", Name: "prcz"},
 					},
 					IsArray: true,
-					Reference: &TypeInfo{
+					/*Reference: &TypeInfo{
 						Name: "Price",
 						Fields: Fields{
 							&FieldInfo{
@@ -366,7 +366,7 @@ var cases = []testCase{
 								},
 							},
 						},
-					},
+					},*/
 				},
 			},
 		},
@@ -393,7 +393,7 @@ var cases = []testCase{
 					Kind:       "Items",
 					IsArray:    true,
 					IsEmbedded: true,
-					Reference: &TypeInfo{
+					/*Reference: &TypeInfo{
 						Name: "Item",
 						Fields: Fields{
 							&FieldInfo{
@@ -403,7 +403,7 @@ var cases = []testCase{
 								IsExported: true,
 							},
 						},
-					},
+					},*/
 				},
 			},
 		},
@@ -716,5 +716,5 @@ func TestLoadWithCommand(t *testing.T) {
 	if err := command.Analyse(thePackages[0]); err != nil {
 		t.Fatalf("error analyzing package : %v", err)
 	}
-	t.Logf("Result : %#v", command.Result)
+	t.Logf("Result : %s", dbg_prn.SPrint(command.Result))
 }

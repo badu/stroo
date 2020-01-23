@@ -87,6 +87,7 @@
 		<div class='ui message' if={state.hasTemplateMessage}>{state.templateMessage}</div>
 		<div class="ui top secondary pointing menu">
 			<a class="active item" data-tab="template">Template</a>
+			<a class="item" data-tab="otherPreview">Preview</a>
 		</div>
 		<div class="ui bottom tab active" data-tab="template">
 			<div class='tab-body'>
@@ -97,6 +98,19 @@
 							  language="text/x-go"
 							  change={render}
 							  busy={!state.templateLoaded}
+							  class='box'>
+				</codetextarea>
+			</div>
+		</div>
+		<div class="ui bottom tab" data-tab="otherPreview">
+			<div class='tab-body'>
+				<p>Generated source:</p>
+				<codetextarea id="otherPreview"
+							  placeholder="The preview will render here once you have entered some source, and a template."
+							  parent="{this}"
+							  readonly='true'
+							  language="text/x-go"
+							  busy={state.previewBusy}
 							  class='box'>
 				</codetextarea>
 			</div>
@@ -252,6 +266,9 @@
 						case 9:
 							this.state.hasTemplateMessage = true
 							this.state.templateMessage = res.responseJSON.errorMessage
+							if (res.responseJSON.partialSource != undefined){
+								this.state.previewCode = res.responseJSON.partialSource
+							}
 						break
 					// ???
 						default:

@@ -1,6 +1,7 @@
 package stroo
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -77,12 +78,13 @@ type TypeWithRoot struct {
 
 type Code struct {
 	CodeConfig
-	Imports      []string
-	PackageInfo  *PackageInfo
-	Main         TypeWithRoot
-	keeper       map[string]interface{} // template authors keeps data in here, key-value, as they need
-	tmpl         *template.Template     // reference to template, so we don't pass it as parameter
-	templateName string                 // set by template, used in GenerateAndStore and ListStored
+	Imports                   []string
+	PackageInfo               *PackageInfo
+	Main                      TypeWithRoot
+	keeper                    map[string]interface{} // template authors keeps data in here, key-value, as they need
+	tmpl                      *template.Template     // reference to template, so we don't pass it as parameter
+	templateName              string                 // set by template, used in GenerateAndStore and ListStored
+	GenerateAndStoreLastError error
 }
 
 // getters for config - to be accessible from template
@@ -120,6 +122,16 @@ func (c *Code) HasInStore(key string) bool {
 }
 
 func (c *Code) AddToImports(imp string) string {
+	if imp == "" {
+		// dummy fix : don't allow empty imports
+		return ""
+	}
+	for _, imprt := range c.Imports {
+		if imprt == imp {
+			// dummy fix : already has it
+			return ""
+		}
+	}
 	c.Imports = append(c.Imports, imp)
 	return ""
 }
@@ -146,6 +158,7 @@ func (c *Code) GenerateAndStore(kind string) bool {
 		if c.CodeConfig.DebugPrint {
 			log.Printf("%q already stored.", kind)
 		}
+		c.GenerateAndStoreLastError = errors.New("`" + kind + "` already stored. you are not checking that yourself?")
 		return false
 	}
 	var buf strings.Builder
@@ -154,6 +167,7 @@ func (c *Code) GenerateAndStore(kind string) bool {
 		if c.CodeConfig.DebugPrint {
 			log.Printf("%q doesn't exist.", kind)
 		}
+		c.GenerateAndStoreLastError = errors.New("`" + kind + "` was not found.")
 		return false
 	}
 
@@ -162,12 +176,15 @@ func (c *Code) GenerateAndStore(kind string) bool {
 		if c.CodeConfig.DebugPrint {
 			log.Printf("generate and store error : %v", err)
 		}
+		log.Printf("generate and store error : %v", err)
+		c.GenerateAndStoreLastError = err
 		return false
 	}
 	c.keeper[entity] = buf.String()
 	if c.CodeConfig.DebugPrint {
 		log.Printf("%q stored.", kind)
 	}
+	c.GenerateAndStoreLastError = nil
 	return true
 }
 
