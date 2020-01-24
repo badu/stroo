@@ -32,7 +32,7 @@ import (
 	{{ if .IsPointer }} if st.{{.Name}} != nil {  {{ end }}
 	{{- if .IsEmbedded -}}
 		// embedded `{{.StructOrArrayString}}` of `{{.RealKind}}`
-		{{- if not (.Root.HasInStore .Kind) -}}
+		{{- if (.Root.HasNotGenerated .Kind) -}}
 			{{ if .Root.RecurseGenerate .Kind }}{{end }}
 		{{- end }}
 		{{- if .IsStruct }}
@@ -55,7 +55,7 @@ import (
 		{{ end }}
 	{{ else }}
 		// {{.StructOrArrayString}} field `{{.Name}}` of type `{{.RealKind}}`
-		{{- if not (.Root.HasInStore .Kind) -}}
+		{{- if (.Root.HasNotGenerated .Kind) -}}
 			{{ if .Root.RecurseGenerate .Kind }}{{ end }}
 		{{- end }}
 		sb.WriteString("{{.Name}}:\n"+fmt.Sprintf("%s", st.{{.Name}}))
@@ -63,12 +63,12 @@ import (
 	{{ if .IsPointer -}} } {{- end }}
 {{ end }}
 {{ define "ArrayStringer" }}
-  // Stringer implementation for {{ .Name }} kind : {{.Kind}}  asd
+  // Stringer implementation for {{ .Name }} kind : {{.Kind}}
   func (st {{ .Name }}) String() string {
     var sb strings.Builder;
     for _, el := range st {
       sb.WriteString("{{.Kind}}:\n"+fmt.Sprintf("%s", el))
-      {{ if not (.Root.HasInStore .Kind) }}
+      {{ if (.Root.HasNotGenerated .Kind) }}
           {{ if .Root.RecurseGenerate .Kind }}{{ end }}
       {{ end }}
     }

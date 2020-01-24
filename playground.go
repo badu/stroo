@@ -274,7 +274,6 @@ type previewResponse struct {
 	Result string `json:"result"`
 }
 
-// TODO : allow multiple packages, separated by something (e.g. commented "---")
 func strooHandler(command *Command) http.HandlerFunc {
 
 	var cachedResult *Code
@@ -337,10 +336,17 @@ func strooHandler(command *Command) http.HandlerFunc {
 				firstType = tempCommand.Result.Types[0]
 			}
 			// create code
-			cachedResult = New(tempCommand.Result, tempCommand.CodeConfig, nil, "")
-
+			cachedResult, err = New(tempCommand.Result, tempCommand.CodeConfig, nil, "")
+			if err != nil {
+				respond(w, MalformedRequest{ErrorMessage: err.Error()})
+				return
+			}
 			if firstType != nil {
-				cachedResult.Main = cachedResult.StructByKey(firstType.Name)
+				cachedResult.Main, err = cachedResult.StructByKey(firstType.Name)
+				if err != nil {
+					respond(w, MalformedRequest{ErrorMessage: err.Error()})
+					return
+				}
 			}
 		}
 		// set the template to the result (might have been changed)
@@ -355,24 +361,14 @@ func strooHandler(command *Command) http.HandlerFunc {
 		}
 		optImports, err := imports.Process(packageName, buf.Bytes(), nil)
 		if err != nil {
-			//log.Printf("optimize imports error : %v\nGo formatted source:\n%s\n", err, buf.String())
 			respond(w, InvalidFormat, err.Error(), buf.String())
 			return
 		}
 
 		formatted, err := format.Source(optImports)
 		if err != nil {
-			//log.Printf("bad format error : %v\nGo source:\n%s\n", err, optImports)
 			respond(w, InvalidFormat, err.Error(), string(optImports))
 			return
-		}
-
-		// finally, if template execution had an "internal" error (from recurse execution)
-		if cachedResult.GenerateAndStoreLastError != nil {
-			log.Printf("generate and store error : %v", err)
-			respond(w, InvalidTemplate, cachedResult.GenerateAndStoreLastError.Error())
-		} else {
-			log.Printf("no error ?")
 		}
 
 		response := previewResponse{Result: string(formatted)}
