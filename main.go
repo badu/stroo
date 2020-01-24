@@ -385,15 +385,7 @@ func (c *Command) NewCode() (*Code, error) {
 	if err != nil {
 		return nil, fmt.Errorf("template-parse-error : %v ; path = %q", err, templatePath)
 	}
-	result := Code{
-		PackageInfo: c.Result,
-		CodeConfig:  c.CodeConfig,
-		keeper:      make(map[string]interface{}),
-		tmpl:        tmpl,
-		Main:        TypeWithRoot{T: c.Result.Types.Extract(c.SelectedType)},
-	}
-	result.Main.D = &result
-	return &result, nil
+	return New(c.Result, c.CodeConfig, tmpl, c.SelectedType), nil
 }
 
 // below is copy paste (with some modifications) from golang.org/x/tools/go/analysis/internal/checker,

@@ -335,26 +335,18 @@ func strooHandler(command *Command) http.HandlerFunc {
 			var firstType *TypeInfo
 			if len(tempCommand.Result.Types) >= 1 {
 				firstType = tempCommand.Result.Types[0]
-			} else {
-				// TODO : temporary -> allow no types selected - might just want to work with interfaces
-				respond(w, InvalidTypes, fmt.Sprintf("%d types found. please declare a type", len(tempCommand.Result.Types)))
-				return
 			}
 			// create code
-			cachedResult = &Code{
-				PackageInfo: tempCommand.Result,
-				CodeConfig:  tempCommand.CodeConfig,
-				Main:        TypeWithRoot{T: firstType},
+			cachedResult = New(tempCommand.Result, tempCommand.CodeConfig, nil, "")
+
+			if firstType != nil {
+				cachedResult.Main = cachedResult.StructByKey(firstType.Name)
 			}
-			for _, imprt := range tempCommand.Result.Imports {
-				cachedResult.AddToImports(imprt.Path)
-			}
-			cachedResult.Main.D = cachedResult
 		}
 		// set the template to the result (might have been changed)
 		cachedResult.tmpl = tmpTemplate
-		cachedResult.keeper = make(map[string]interface{}) // reset kept data (so we can refill it)
-		fmt.Println("Execute template")
+		cachedResult.ResetKeeper() // reset kept data (so we can refill it)
+
 		// finally, we're processing the template over the result
 		var buf bytes.Buffer
 		if err := tmpTemplate.Execute(&buf, cachedResult); err != nil {
@@ -375,10 +367,12 @@ func strooHandler(command *Command) http.HandlerFunc {
 			return
 		}
 
-		fmt.Printf("GenerateAndStoreLastError: %v", cachedResult.GenerateAndStoreLastError)
-		// if template execution had an "internal" error
+		// finally, if template execution had an "internal" error (from recurse execution)
 		if cachedResult.GenerateAndStoreLastError != nil {
+			log.Printf("generate and store error : %v", err)
 			respond(w, InvalidTemplate, cachedResult.GenerateAndStoreLastError.Error())
+		} else {
+			log.Printf("no error ?")
 		}
 
 		response := previewResponse{Result: string(formatted)}

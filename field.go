@@ -22,12 +22,10 @@ type FieldInfo struct {
 	Package     string
 	PackagePath string
 	Comment     *ast.CommentGroup
-	keeper      map[string]interface{} // template authors keeps data in here, key-value, as they need
-	root        *Code
+	root        *Code // reference to the root document - to allow access to methods
 }
 
-func (f *FieldInfo) SetRoot(doc *Code) { f.root = doc }
-func (f *FieldInfo) Root() *Code       { return f.root }
+func (f *FieldInfo) Root() *Code { return f.root }
 func (f *FieldInfo) StructOrArrayString() string {
 	if f.IsArray {
 		return "array"
@@ -91,32 +89,6 @@ func (f *FieldInfo) IsInt() bool {
 		return true
 	}
 	return false
-}
-
-func (f *FieldInfo) Keeper() map[string]interface{} { return f.keeper }
-func (f *FieldInfo) Store(key string, value interface{}) bool {
-	if f.keeper == nil {
-		f.keeper = make(map[string]interface{})
-	}
-	_, has := f.keeper[key]
-	f.keeper[key] = value
-	return has
-}
-
-func (f *FieldInfo) Retrieve(key string) interface{} {
-	if f.keeper == nil {
-		f.keeper = make(map[string]interface{})
-	}
-	value, _ := f.keeper[key]
-	return value
-}
-
-func (f *FieldInfo) HasInStore(key string) bool {
-	if f.keeper == nil {
-		f.keeper = make(map[string]interface{})
-	}
-	_, has := f.keeper[key]
-	return has
 }
 
 type Fields []*FieldInfo

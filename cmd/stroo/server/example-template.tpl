@@ -29,22 +29,21 @@ import (
 	{{ if .IsPointer -}} } {{- end }}
 {{ end }}
 {{ define "StructOrArray" }}
-	{{- $D := .Retrieve "D" -}}
 	{{ if .IsPointer }} if st.{{.Name}} != nil {  {{ end }}
 	{{- if .IsEmbedded -}}
 		// embedded `{{.StructOrArrayString}}` of `{{.RealKind}}`
-		{{- if not ($D.HasInStore .Kind) -}}
-			{{ if $D.GenerateAndStore .Kind }}{{end }}
+		{{- if not (.Root.HasInStore .Kind) -}}
+			{{ if .Root.RecurseGenerate .Kind }}{{end }}
 		{{- end }}
 		{{- if .IsStruct }}
 		  {{- $outerName := .Name -}}
-          {{- range $field := ($D.StructByKey .Name).Fields -}}
+          {{- range $field := (.Root.StructByKey .Name).Fields -}}
               // embedded field named `{{ $field.Name }}` of type `{{ .RealKind }}`
               {{ if $field.IsPointer }} if st.{{$outerName}}.{{$field.Name}} != nil { {{ end }}
               sb.WriteString("{{concat $outerName $field.Name}}:\n"+fmt.Sprintf("%s", st.{{$outerName}}.{{$field.Name}}))
               {{ if .IsImported }}
 				  // embedded imported `{{.Package}}.{{.Name}}`
-                  {{ $D.AddToImports .Package }}
+                  {{ .Root.AddToImports .Package }}
               {{ end }}
               {{ if $field.IsPointer }} } {{ end }}
           {{- end -}}
@@ -56,29 +55,27 @@ import (
 		{{ end }}
 	{{ else }}
 		// {{.StructOrArrayString}} field `{{.Name}}` of type `{{.RealKind}}`
-		{{- if not ($D.HasInStore .Kind) -}}
-			{{ if $D.GenerateAndStore .Kind }}{{ end }}
+		{{- if not (.Root.HasInStore .Kind) -}}
+			{{ if .Root.RecurseGenerate .Kind }}{{ end }}
 		{{- end }}
 		sb.WriteString("{{.Name}}:\n"+fmt.Sprintf("%s", st.{{.Name}}))
 	{{- end -}}
 	{{ if .IsPointer -}} } {{- end }}
 {{ end }}
 {{ define "ArrayStringer" }}
-  {{- $D := .Retrieve "D" -}}
   // Stringer implementation for {{ .Name }} kind : {{.Kind}}  asd
   func (st {{ .Name }}) String() string {
     var sb strings.Builder;
     for _, el := range st {
       sb.WriteString("{{.Kind}}:\n"+fmt.Sprintf("%s", el))
-      {{ if not ($D.HasInStore .Kind) }}
-          {{ if $D.GenerateAndStore .Kind }}{{ end }}
+      {{ if not (.Root.HasInStore .Kind) }}
+          {{ if .Root.RecurseGenerate .Kind }}{{ end }}
       {{ end }}
     }
     return sb.String()
   }
 {{ end }}
 {{ define "StructStringer" }}
-	{{- $D := .Retrieve "D" -}}
 	// Stringer implementation for {{ .Kind}}
 	func (st {{ .Kind }}) String() string {
 		var sb strings.Builder;
@@ -87,13 +84,12 @@ import (
 			{{ if .IsExported -}}
 				{{ if .IsImported }}
                   // Not processed : `{{.Name}}` imported field from `{{.Package}}`
-                  {{ $D.AddToImports .Package }}
+                  {{ .Root.AddToImports .Package }}
 				{{ end }}
 				{{- if or .IsStruct .IsArray -}}
-					{{ if (.Store "D" $D) }} {{ end }}
 					{{- template "StructOrArray" . -}}
 				{{ else if .IsBasic }}
-					{{- template "BasicType" . }}
+					{{- template "BasicType" . -}}
 				{{ end -}}
 			{{ end -}}
 		{{ end }}
@@ -101,8 +97,7 @@ import (
 	}
 {{ end }}
 {{ define "Stringer" }}
-	{{- with .T }}
-		{{- if (.Store "D" $.D) -}} {{- end -}} {{/* pass reference to document */}}
+	{{- with . }}
 		{{- if .IsArray }}
 			{{ template "ArrayStringer" . }}
 		{{ else  }}

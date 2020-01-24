@@ -71,35 +71,68 @@ func SortFields(fields Fields) bool {
 	return true
 }
 
-type TypeWithRoot struct {
-	T *TypeInfo // like "current" type
-	D *Code     // required as "parent" in recursion templates
-}
-
 type Code struct {
 	CodeConfig
 	Imports                   []string
 	PackageInfo               *PackageInfo
-	Main                      TypeWithRoot
 	keeper                    map[string]interface{} // template authors keeps data in here, key-value, as they need
 	tmpl                      *template.Template     // reference to template, so we don't pass it as parameter
-	templateName              string                 // set by template, used in GenerateAndStore and ListStored
+	templateName              string                 // set by template, used in RecurseGenerate and ListStored
+	Main                      *TypeInfo              // not nil if we're working with a preselected type
 	GenerateAndStoreLastError error
 }
 
+func New(info *PackageInfo, config CodeConfig, template *template.Template, selectedType string) *Code {
+	result := &Code{
+		PackageInfo: info,
+		CodeConfig:  config,
+	}
+	// reset keeper
+	result.ResetKeeper()
+	// add imports (they get cleared by importer tool)
+	for _, imprt := range info.Imports {
+		result.AddToImports(imprt.Path)
+	}
+	// we were provided with a template
+	if template != nil {
+		result.tmpl = template
+	}
+	// we were provided with a preselected type
+	if selectedType != "" {
+		result.Main = result.StructByKey(selectedType)
+	}
+	return result
+}
+
 // getters for config - to be accessible from template
-func (c *Code) SelectedType() string     { return c.CodeConfig.SelectedType }
-func (c *Code) TestMode() bool           { return c.CodeConfig.TestMode }
-func (c *Code) DebugPrint() bool         { return c.CodeConfig.DebugPrint }
-func (c *Code) Serve() bool              { return c.CodeConfig.Serve }
-func (c *Code) TemplateFile() string     { return c.CodeConfig.TemplateFile }
-func (c *Code) OutputFile() string       { return c.CodeConfig.OutputFile }
-func (c *Code) SelectedPeerType() string { return c.CodeConfig.SelectedPeerType }
+func (c *Code) SelectedType() string           { return c.CodeConfig.SelectedType }
+func (c *Code) TestMode() bool                 { return c.CodeConfig.TestMode }
+func (c *Code) DebugPrint() bool               { return c.CodeConfig.DebugPrint }
+func (c *Code) Serve() bool                    { return c.CodeConfig.Serve }
+func (c *Code) TemplateFile() string           { return c.CodeConfig.TemplateFile }
+func (c *Code) OutputFile() string             { return c.CodeConfig.OutputFile }
+func (c *Code) SelectedPeerType() string       { return c.CodeConfig.SelectedPeerType }
+func (c *Code) Tmpl() *template.Template       { return c.tmpl }
+func (c *Code) Keeper() map[string]interface{} { return c.keeper }
+func (c *Code) ClearLastError()                {}
+func (c *Code) LastError()                     {}
+func (c *Code) ResetKeeper()                   { c.keeper = make(map[string]interface{}) }
 
 // gets a struct declaration by it's name
-func (c *Code) StructByKey(key string) *TypeInfo { return c.PackageInfo.Types.Extract(key) }
-func (c *Code) Tmpl() *template.Template         { return c.tmpl }
-func (c *Code) Keeper() map[string]interface{}   { return c.keeper }
+// also sets the reference to this, so it can be accessed as Root()
+func (c *Code) StructByKey(key string) *TypeInfo {
+	result := c.PackageInfo.Types.Extract(key)
+	if result == nil {
+		c.GenerateAndStoreLastError = fmt.Errorf("error looking for %q into types", key)
+	} else {
+		// set access to root to type and it's fields
+		result.root = c
+		for _, field := range result.Fields {
+			field.root = c
+		}
+	}
+	return result
+}
 
 // returns true if the key exist and will overwrite
 func (c *Code) Store(key string, value interface{}) bool {
@@ -108,8 +141,12 @@ func (c *Code) Store(key string, value interface{}) bool {
 	return has
 }
 
+// retrieves the entire "storage" at template dev disposal
 func (c *Code) Retrieve(key string) interface{} {
-	value, _ := c.keeper[key]
+	value, has := c.keeper[key]
+	if !has {
+		c.GenerateAndStoreLastError = fmt.Errorf("error : attempt to retrieve %q - was not found", key)
+	}
 	return value
 }
 
@@ -136,19 +173,30 @@ func (c *Code) AddToImports(imp string) string {
 	return ""
 }
 
+// this should be called to allow the generator to know which kind of methods we're generating
 func (c *Code) Declare(name string) bool {
-	if c.Main.T == nil {
-		log.Printf("error : main type is not set - impossible...")
-	}
 	if name == "" {
 		log.Printf("error : cannot declare empty template name (e.g.`Stringer`)")
+		c.GenerateAndStoreLastError = errors.New("error : cannot declare empty template name (e.g.`Stringer`)")
+		return false
+	}
+	if c.Main == nil {
+		log.Printf("error : main operating type was not selected")
+		c.GenerateAndStoreLastError = errors.New("error : main operating type was not selected - you cannot recurse")
+		return false
 	}
 	c.templateName = name
-	c.keeper[name+c.Main.T.Name] = "" // set it to empty in case of self reference, so template will exit
+	c.keeper[name+c.Main.Name] = "" // set it to empty in case of self reference, so template will exit
 	return true
 }
 
-func (c *Code) GenerateAndStore(kind string) bool {
+// uses the template name to apply the template recursively
+// it's useful for replacing the code in existing generated files
+func (c *Code) RecurseGenerate(kind string) bool {
+	if c.templateName == "" {
+		c.GenerateAndStoreLastError = errors.New("you haven't called Declare(methodName) to allow replacing existing generated code")
+		return false
+	}
 	entity := c.templateName + kind
 	if c.CodeConfig.DebugPrint {
 		log.Printf("Processing %q %q ", c.templateName, kind)
@@ -162,7 +210,8 @@ func (c *Code) GenerateAndStore(kind string) bool {
 		return false
 	}
 	var buf strings.Builder
-	nt := c.PackageInfo.Types.Extract(kind)
+
+	nt := c.StructByKey(kind)
 	if nt == nil {
 		if c.CodeConfig.DebugPrint {
 			log.Printf("%q doesn't exist.", kind)
@@ -171,12 +220,11 @@ func (c *Code) GenerateAndStore(kind string) bool {
 		return false
 	}
 
-	err := c.tmpl.ExecuteTemplate(&buf, c.templateName, TypeWithRoot{D: c, T: nt})
+	err := c.tmpl.ExecuteTemplate(&buf, c.templateName, nt)
 	if err != nil {
 		if c.CodeConfig.DebugPrint {
 			log.Printf("generate and store error : %v", err)
 		}
-		log.Printf("generate and store error : %v", err)
 		c.GenerateAndStoreLastError = err
 		return false
 	}
