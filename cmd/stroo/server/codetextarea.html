@@ -40,6 +40,7 @@
 				readonly:props.readonly == undefined? false : true,
 				busy:props.busy,
 				placeHolder:props.placeholder,
+				currentLine:0
 			}
 		},
 		onMounted(){
@@ -73,6 +74,26 @@
 		onBeforeUpdate(){
 			var parentState = this.props.parent.state
 			var unchanged = this.codeMirror.getValue() == this.state.placeHolder
+			if (this.props.id == "template"){
+				var lineNumber = parentState.templateCurrentLine
+				if (lineNumber > 0 && this.state.currentLine != lineNumber){
+					if (lineNumber >= this.codeMirror.lineCount()){
+						lineNumber = this.codeMirror.lineCount() - 1 // fix for codemirror which counts minus one
+					}
+					this.codeMirror.scrollIntoView({line:lineNumber, char:1}, 200)
+					this.state.currentLine = lineNumber
+				}
+			}
+			if (this.props.id == "source"){
+				var lineNumber = parentState.sourceCurrentLine
+				if (lineNumber > 0 && this.state.currentLine != lineNumber){
+					if (lineNumber >= this.codeMirror.lineCount()){
+						lineNumber = this.codeMirror.lineCount() - 1 // fix for codemirror which counts minus one
+					}
+					this.codeMirror.scrollIntoView({line:lineNumber, char:1}, 200)
+					this.state.currentLine = lineNumber
+				}
+			}
 			// it turns out that I don't know that much RiotJs
 			this.state.busy = this.props.busy
 			if (this.props.id == "template" && unchanged){
@@ -86,7 +107,7 @@
 					this.codeMirror.setValue(parentState.sourceCode)
 				}
 			} else if (this.props.id == "preview" || this.props.id == "otherPreview"){
-				// update everytime
+				// update every time
 				this.codeMirror.setValue(parentState.previewCode)
 			}
 		},

@@ -133,7 +133,10 @@
 				previewCode:"Nothing to preview",
 				previewBusy:true,
 				firstPreview:true,
-				jsonPayload:{template:"",source:""}
+				jsonPayload:{template:"",source:""},
+				templateCurrentLine:0,
+				sourceCurrentLine:0,
+
 			}
 		},
 		onUpdated(){
@@ -147,9 +150,45 @@
 			this.render("","")
 		},
 		onMounted() {
-			this.menu = $('.menu .item')
-			this.menu.tab()
+			var state = {
+				left:"preview",
+				right:"template"
+			}
 			var that = this
+			this.menu = $('.menu .item')
+			var tabber = $('.ui.menu').find('.item')
+			var guardian = function(which){
+				switch (which){
+					case "template":
+						if (state.left == "source"){
+							tabber.tab('change tab', 'preview')
+						}
+						state.right = which
+					break
+					case "otherPreview":
+						if (state.left == "preview"){
+							tabber.tab('change tab', 'source')
+						}
+						state.right = which
+					break
+					case "preview":
+						if (state.right == "otherPreview"){
+							tabber.tab('change tab', 'template')
+						}
+						state.left = which
+					break
+					case "source":
+						if (state.right == "template"){
+							tabber.tab('change tab', 'otherPreview')
+						}
+						state.left = which
+					break
+					default:
+						alert("error : what tab?", which)
+				}
+			}
+			// guards previews to stay in sync (if preview left, then show template in right and vice versa)
+			this.menu.tab({'onVisible':guardian})
 			// this fixes a bug for code mirror (doesn't show content when it was hidden - 'update' which will 'refresh')
 			this.menu.on('click', function(event){ that.update() })
 
@@ -221,51 +260,59 @@
 				}.bind(this),
 				error: function(res){
 					console.log("error", res.responseJSON)
+					var extracted = res.responseJSON.errorMessage.replace(/playground:/g, "")
+					var lineAndPos = /\w+(0{5}):\w+|\d+/g.exec(extracted)
 					switch (res.responseJSON.type){
 					//Json           ErrorType = 1
 						case 1:
 							this.state.hasSourceMessage = true
-							this.state.sourceMessage = res.responseJSON.errorMessage
+							this.state.sourceMessage = extracted
 						break
 					//TemplaParse    ErrorType = 2
 						case 2:
 							this.state.hasTemplateMessage = true
-							this.state.templateMessage = res.responseJSON.errorMessage
+							this.state.templateMessage = extracted
 						break
 					//BadTempProject ErrorType = 3
 						case 3:
 							this.state.hasSourceMessage = true
-							this.state.sourceMessage = res.responseJSON.errorMessage
+							this.state.sourceMessage = extracted
+							if (lineAndPos.length == 2){
+								this.state.sourceCurrentLine = lineAndPos[0]
+							}
 						break
 					//PackaLoad      ErrorType = 4
 						case 4:
 							this.state.hasSourceMessage = true
-							this.state.sourceMessage = res.responseJSON.errorMessage
+							this.state.sourceMessage = extracted
 						break
 					//OnePackage     ErrorType = 5
 						case 5:
 							this.state.hasSourceMessage = true
-							this.state.sourceMessage = res.responseJSON.errorMessage
+							this.state.sourceMessage = extracted
 						break
 					//Packalyse      ErrorType = 6
 						case 6:
 							this.state.hasSourceMessage = true
-							this.state.sourceMessage = res.responseJSON.errorMessage
+							this.state.sourceMessage = extracted
 						break
 					//NoTypes        ErrorType = 7
 						case 7:
 							this.state.hasSourceMessage = true
-							this.state.sourceMessage = res.responseJSON.errorMessage
+							this.state.sourceMessage = extracted
 						break
 					//TemplExe       ErrorType = 8
 						case 8:
 							this.state.hasTemplateMessage = true
-							this.state.templateMessage = res.responseJSON.errorMessage
+							this.state.templateMessage = extracted
+							if (lineAndPos.length == 2){
+								this.state.templateCurrentLine = lineAndPos[0]
+							}
 						break
 					//BadFormat      ErrorType = 9
 						case 9:
 							this.state.hasTemplateMessage = true
-							this.state.templateMessage = res.responseJSON.errorMessage
+							this.state.templateMessage = extracted
 							if (res.responseJSON.partialSource != undefined){
 								this.state.previewCode = res.responseJSON.partialSource
 							}
