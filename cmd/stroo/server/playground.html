@@ -1,54 +1,64 @@
 <playground>
 	<style>
-		.template {
-			margin-left: 20px;
-			display: flex;
-			flex: 1 100%;
-			flex-direction: column;
-		}
-		.box {
-			display: flex;
-			flex: 1 100%;
-		}
-		.preview {
-			display: flex;
-			flex: 1 100%;
-			flex-direction: column;
-		}
-		.message {
-			flex-shrink: 0;
-		}
-		.source {
-			margin-bottom: 10px;
-		}
-		.menu {
-			flex-shrink: 0;
-		}
-		.ui.top.menu {
-			margin: 0px;
-		}
-		.ui.bottom.tab.active {
-			display: flex;
-			flex: 1 100%;
-			margin: 0px;
-		}
-		.tab-body {
-			display: flex;
-			flex: 1 100%;
-			flex-direction: column;
-			align-items: stretch;
-			align-content: stretch;
-			margin-top: 10px;
-		}
-		.CodeMirror{
-			border: 1px solid #eee;
-			position:absolute;
-			top:0;
-			bottom:0;
-			left:0;
-			right:0;
-			height:100%;
-		}
+        .template {
+            margin-left: 20px;
+            display: flex;
+            flex: 1 100%;
+            flex-direction: column;
+        }
+        
+        .box {
+            display: flex;
+            flex: 1 100%;
+        }
+        
+        .preview {
+            display: flex;
+            flex: 1 100%;
+            flex-direction: column;
+        }
+        
+        .message {
+            flex-shrink: 0;
+        }
+        
+        .source {
+            margin-bottom: 10px;
+        }
+        
+        .menu {
+            flex-shrink: 0;
+        }
+        
+        .ui.top.menu {
+            margin: 0px;
+        }
+        
+        .ui.bottom.tab.active {
+            display: flex;
+            flex: 1 100%;
+            margin: 0px;
+        }
+        
+        .tab-body {
+            display: flex;
+            flex: 1 100%;
+            flex-direction: column;
+            align-items: stretch;
+            align-content: stretch;
+            margin-top: 10px;
+        }
+        
+        .CodeMirror {
+            border: 1px solid #eee;
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 100%;
+        }
+
 	</style>
 	<div class='preview'>
 		<div class='ui message' if={state.hasSourceMessage}>{state.sourceMessage}</div>
@@ -59,26 +69,28 @@
 		<div class="ui bottom tab" data-tab="source">
 			<div class='tab-body'>
 				<p>Input source code used for generation:</p>
-				<codetextarea id="source"
-							  placeholder="Go source code"
-							  parent="{this}"
-							  change={render}
-							  busy={!state.sourceLoaded}
-							  language="text/x-go"
-							  class='box'>
+				<codetextarea
+						id="source"
+						placeholder="Go source code"
+						parent={this}
+						change={render}
+						busy={!state.sourceLoaded}
+						language="text/x-go"
+						class='box'>
 				</codetextarea>
 			</div>
 		</div>
 		<div class="ui bottom tab active" data-tab="preview">
 			<div class='tab-body'>
 				<p>Generated source:</p>
-				<codetextarea id="preview"
-							  placeholder="The preview will render here once you have entered some source, and a template."
-							  parent="{this}"
-							  readonly='true'
-							  language="text/x-go"
-							  busy={state.previewBusy}
-							  class='box'>
+				<codetextarea
+						id="preview"
+						placeholder="The preview will render here once you have entered some source, and a template."
+						parent={this}
+						readonly='true'
+						language="text/x-go"
+						busy={state.previewBusy}
+						class='box'>
 				</codetextarea>
 			</div>
 		</div>
@@ -92,243 +104,242 @@
 		<div class="ui bottom tab active" data-tab="template">
 			<div class='tab-body'>
 				<p>Go template used for generation:</p>
-				<codetextarea id="template"
-							  placeholder='Template'
-							  parent="{this}"
-							  language="text/x-go"
-							  change={render}
-							  busy={!state.templateLoaded}
-							  class='box'>
+				<codetextarea
+						id="template"
+						placeholder='Template'
+						parent={this}
+						language="text/x-go"
+						change={render}
+						busy={!state.templateLoaded}
+						class='box'>
 				</codetextarea>
 			</div>
 		</div>
 		<div class="ui bottom tab" data-tab="otherPreview">
 			<div class='tab-body'>
 				<p>Generated source:</p>
-				<codetextarea id="otherPreview"
-							  placeholder="The preview will render here once you have entered some source, and a template."
-							  parent="{this}"
-							  readonly='true'
-							  language="text/x-go"
-							  busy={state.previewBusy}
-							  class='box'>
+				<codetextarea
+						id="otherPreview"
+						placeholder="The preview will render here once you have entered some source, and a template."
+						parent={this}
+						readonly='true'
+						language="text/x-go"
+						busy={state.previewBusy}
+						class='box'>
 				</codetextarea>
 			</div>
 		</div>
 	</div>
 
 	<script>
-	export default {
-		onBeforeMount(props, state) {
-			// initial state
-			this.state = {
-				hasTemplateMessage:true,
-				templateMessage: "please wait, loading template...",
-				templateCode:"",
-				templateLoaded:false,
-				hasSourceMessage:true,
-				sourceMessage:"please wait, loading source...",
-				sourceCode:"",
-				sourceLoaded:false,
-				previewCode:"Nothing to preview",
-				previewBusy:true,
-				firstPreview:true,
-				jsonPayload:{template:"",source:""},
-				templateCurrentLine:0,
-				sourceCurrentLine:0,
+        export default {
+            onBeforeMount(props, state) {
+                // initial state
+                this.state = {
+                    hasTemplateMessage: true,
+                    templateMessage: "please wait, loading template...",
+                    templateCode: "",
+                    templateLoaded: false,
+                    hasSourceMessage: true,
+                    sourceMessage: "please wait, loading source...",
+                    sourceCode: "",
+                    sourceLoaded: false,
+                    previewCode: "Nothing to preview",
+                    previewBusy: true,
+                    firstPreview: true,
+                    jsonPayload: {
+                        template: "",
+                        source: ""
+                    },
+                    templateCurrentLine: 0,
+                    sourceCurrentLine: 0
+                }
+            },
+            onUpdated() {
+                if (!this.state.firstPreview) {
+                    return
+                }
+                if (!this.state.templateLoaded || !this.state.sourceLoaded) {
+                    return
+                }
+                this.state.firstPreview = false
+                this.render("", "")
+            },
+            onMounted() {
+                var state = {
+                    left: "preview",
+                    right: "template"
+                }
+                var that = this
+                this.menu = $('.menu .item')
+                var tabber = $('.ui.menu').find('.item')
+                var guardian = function(which) {
+                        switch (which) {
+                            case "template":
+                                if (state.left == "source") {
+                                    tabber.tab('change tab', 'preview')
+                                }
+                                state.right = which
+                                break
+                            case "otherPreview":
+                                if (state.left == "preview") {
+                                    tabber.tab('change tab', 'source')
+                                }
+                                state.right = which
+                                break
+                            case "preview":
+                                if (state.right == "otherPreview") {
+                                    tabber.tab('change tab', 'template')
+                                }
+                                state.left = which
+                                break
+                            case "source":
+                                if (state.right == "template") {
+                                    tabber.tab('change tab', 'otherPreview')
+                                }
+                                state.left = which
+                                break
+                            default:
+                                alert("error : what tab?", which)
+                        }
+                    }
+                    // guards previews to stay in sync (if preview left, then show template in right and vice versa)
+                this.menu.tab({
+                        'onVisible': guardian
+                    })
+                    // this fixes a bug for code mirror (doesn't show content when it was hidden - 'update' which will 'refresh')
+                this.menu.on('click', function(event) {
+                    that.update()
+                })
 
-			}
-		},
-		onUpdated(){
-			if (!this.state.firstPreview){
-				return
-			}
-			if (!this.state.templateLoaded || !this.state.sourceLoaded){
-				return
-			}
-			this.state.firstPreview = false
-			this.render("","")
-		},
-		onMounted() {
-			var state = {
-				left:"preview",
-				right:"template"
-			}
-			var that = this
-			this.menu = $('.menu .item')
-			var tabber = $('.ui.menu').find('.item')
-			var guardian = function(which){
-				switch (which){
-					case "template":
-						if (state.left == "source"){
-							tabber.tab('change tab', 'preview')
-						}
-						state.right = which
-					break
-					case "otherPreview":
-						if (state.left == "preview"){
-							tabber.tab('change tab', 'source')
-						}
-						state.right = which
-					break
-					case "preview":
-						if (state.right == "otherPreview"){
-							tabber.tab('change tab', 'template')
-						}
-						state.left = which
-					break
-					case "source":
-						if (state.right == "template"){
-							tabber.tab('change tab', 'otherPreview')
-						}
-						state.left = which
-					break
-					default:
-						alert("error : what tab?", which)
-				}
-			}
-			// guards previews to stay in sync (if preview left, then show template in right and vice versa)
-			this.menu.tab({'onVisible':guardian})
-			// this fixes a bug for code mirror (doesn't show content when it was hidden - 'update' which will 'refresh')
-			this.menu.on('click', function(event){ that.update() })
+                $.ajax({
+                    type: "get",
+                    url: "/example-template",
+                    cache: false,
+                    success: function(template) {
+                        this.state.templateCode = template
+                        this.state.jsonPayload.template = template
+                        this.state.templateMessage = ""
+                        this.state.hasTemplateMessage = false
+                        this.state.templateLoaded = true
+                    }.bind(this),
+                    error: function(res) {
+                        this.state.templateMessage = res
+                        this.state.hasTemplateMessage = true
+                    }.bind(this),
+                    complete: function() {
+                        this.update()
+                    }.bind(this)
+                })
 
-			$.ajax({
-				type: "get",
-				url: "/example-template",
-				cache: false,
-				success: function(template){
-					this.state.templateCode = template
-					this.state.jsonPayload.template = template
-					this.state.templateMessage = ""
-					this.state.hasTemplateMessage = false
-					this.state.templateLoaded = true
-				}.bind(this),
-				error: function(res){
-					this.state.templateMessage = res
-					this.state.hasTemplateMessage = true
-				}.bind(this),
-				complete: function(){
-					this.update()
-				}.bind(this)
-			})
+                $.ajax({
+                    type: "get",
+                    url: "/example-source",
+                    cache: false,
+                    success: function(code) {
+                        this.state.sourceMessage = ""
+                        this.state.sourceCode = code
+                        this.state.jsonPayload.source = code
+                        this.state.hasSourceMessage = false
+                        this.state.sourceLoaded = true
+                    }.bind(this),
+                    error: function(res) {
+                        this.state.sourceMessage = res
+                        this.state.hasSourceMessage = true
+                    }.bind(this),
+                    complete: function() {
+                        this.update()
+                    }.bind(this)
+                })
+            },
+            render(id, newSource) {
+                this.state.jsonPayload.sourceChanged = false
+                if (id === "template") {
+                    this.state.jsonPayload.template = newSource
+                } else if (id === "source") {
+                    this.state.jsonPayload.source = newSource
+                    this.state.jsonPayload.sourceChanged = true
+                }
+                this.state.previewBusy = true
+                if (this.state.hasTemplateMessage) {
+                    this.state.hasTemplateMessage = false
+                    this.state.templateMessage = ""
+                }
+                if (this.state.hasSourceMessage) {
+                    this.state.hasSourceMessage = false
+                    this.state.sourceMessage = ""
+                }
+                $.ajax({
+                    type: 'post',
+                    url: "/stroo-it",
+                    data: JSON.stringify(this.state.jsonPayload),
+                    dataType: 'JSON',
+                    cache: false,
+                    success: function(response) {
+                        this.state.previewCode = response.result
+                    }.bind(this),
+                    error: function(res) {
+                        console.log("error", res.responseJSON)
+                        var extracted = res.responseJSON.errorMessage.replace(/playground:/g, "")
+                        var lineAndPos = /\w+(0{5}):\w+|\d+/g.exec(extracted)
+                        switch (res.responseJSON.type) {
+                            case 1: //Json           ErrorType = 1
+                                this.state.hasSourceMessage = true
+                                this.state.sourceMessage = extracted
+                                break
+                            case 2: //TemplaParse    ErrorType = 2
+                                this.state.hasTemplateMessage = true
+                                this.state.templateMessage = extracted
+                                break
+                            case 3: //BadTempProject ErrorType = 3
+                                this.state.hasSourceMessage = true
+                                this.state.sourceMessage = extracted
+                                if (lineAndPos.length == 2) {
+                                    this.state.sourceCurrentLine = lineAndPos[0]
+                                }
+                                break
+                            case 4: //PackaLoad      ErrorType = 4
+                                this.state.hasSourceMessage = true
+                                this.state.sourceMessage = extracted
+                                break
+                            case 5: //OnePackage     ErrorType = 5
+                                this.state.hasSourceMessage = true
+                                this.state.sourceMessage = extracted
+                                break
+                            case 6: //Packalyse      ErrorType = 6
+                                this.state.hasSourceMessage = true
+                                this.state.sourceMessage = extracted
+                                break
+                            case 7: //NoTypes        ErrorType = 7
+                                this.state.hasSourceMessage = true
+                                this.state.sourceMessage = extracted
+                                break
+                            case 8: //TemplExe       ErrorType = 8
+                                this.state.hasTemplateMessage = true
+                                this.state.templateMessage = extracted
+                                if (lineAndPos.length == 2) {
+                                    this.state.templateCurrentLine = lineAndPos[0]
+                                }
+                                break
+                            case 9: //BadFormat      ErrorType = 9
+                                this.state.hasTemplateMessage = true
+                                this.state.templateMessage = extracted
+                                if (res.responseJSON.partialSource != undefined) {
+                                    this.state.previewCode = res.responseJSON.partialSource
+                                }
+                                break
+                            default: // ???
+                                this.state.hasSourceMessage = true
+                                this.state.sourceMessage = "unknown error : " + JSON.stringify(res.responseJSON)
+                        }
+                    }.bind(this),
+                    complete: function() {
+                        this.state.previewBusy = false
+                        this.update()
+                    }.bind(this)
+                })
+            }
+        }
 
-			$.ajax({
-				type: "get",
-				url: "/example-source",
-				cache: false,
-				success: function(code){
-					this.state.sourceMessage = ""
-					this.state.sourceCode = code
-					this.state.jsonPayload.source = code
-					this.state.hasSourceMessage = false
-					this.state.sourceLoaded = true
-				}.bind(this),
-				error: function(res){
-					this.state.sourceMessage = res
-					this.state.hasSourceMessage = true
-				}.bind(this),
-				complete: function(){
-					this.update()
-				}.bind(this)
-			})
-		},
-		render(id, newSource) {
-			this.state.jsonPayload.sourceChanged = false
-			if (id === "template"){
-				this.state.jsonPayload.template = newSource
-			}else if (id === "source"){
-				this.state.jsonPayload.source = newSource
-				this.state.jsonPayload.sourceChanged = true
-			}
-			this.state.previewBusy = true
-			if (this.state.hasTemplateMessage){
-				this.state.hasTemplateMessage = false
-				this.state.templateMessage = ""
-			}
-			if (this.state.hasSourceMessage){
-				this.state.hasSourceMessage = false
-				this.state.sourceMessage = ""
-			}
-			$.ajax({
-				type: 'post',
-				url: "/stroo-it",
-				data: JSON.stringify(this.state.jsonPayload),
-				dataType: 'JSON',
-				cache: false,
-				success: function(response){
-					this.state.previewCode = response.result
-				}.bind(this),
-				error: function(res){
-					console.log("error", res.responseJSON)
-					var extracted = res.responseJSON.errorMessage.replace(/playground:/g, "")
-					var lineAndPos = /\w+(0{5}):\w+|\d+/g.exec(extracted)
-					switch (res.responseJSON.type){
-					//Json           ErrorType = 1
-						case 1:
-							this.state.hasSourceMessage = true
-							this.state.sourceMessage = extracted
-						break
-					//TemplaParse    ErrorType = 2
-						case 2:
-							this.state.hasTemplateMessage = true
-							this.state.templateMessage = extracted
-						break
-					//BadTempProject ErrorType = 3
-						case 3:
-							this.state.hasSourceMessage = true
-							this.state.sourceMessage = extracted
-							if (lineAndPos.length == 2){
-								this.state.sourceCurrentLine = lineAndPos[0]
-							}
-						break
-					//PackaLoad      ErrorType = 4
-						case 4:
-							this.state.hasSourceMessage = true
-							this.state.sourceMessage = extracted
-						break
-					//OnePackage     ErrorType = 5
-						case 5:
-							this.state.hasSourceMessage = true
-							this.state.sourceMessage = extracted
-						break
-					//Packalyse      ErrorType = 6
-						case 6:
-							this.state.hasSourceMessage = true
-							this.state.sourceMessage = extracted
-						break
-					//NoTypes        ErrorType = 7
-						case 7:
-							this.state.hasSourceMessage = true
-							this.state.sourceMessage = extracted
-						break
-					//TemplExe       ErrorType = 8
-						case 8:
-							this.state.hasTemplateMessage = true
-							this.state.templateMessage = extracted
-							if (lineAndPos.length == 2){
-								this.state.templateCurrentLine = lineAndPos[0]
-							}
-						break
-					//BadFormat      ErrorType = 9
-						case 9:
-							this.state.hasTemplateMessage = true
-							this.state.templateMessage = extracted
-							if (res.responseJSON.partialSource != undefined){
-								this.state.previewCode = res.responseJSON.partialSource
-							}
-						break
-					// ???
-						default:
-							this.state.hasSourceMessage = true
-							this.state.sourceMessage = "unknown error : "+JSON.stringify(res.responseJSON)
-					}
-				}.bind(this),
-				complete: function(){
-					this.state.previewBusy = false
-					this.update()
-				}.bind(this)
-			})
-		}
-	}
 	</script>
 </playground>

@@ -23,8 +23,13 @@ type FieldInfo struct {
 	PackagePath string
 	Comment     *ast.CommentGroup
 	root        *Code // reference to the root document - to allow access to methods
+	Prefix      string
 }
 
+func (f *FieldInfo) SetPrefix(prefix string) error {
+	f.Prefix = prefix
+	return nil
+}
 func (f *FieldInfo) Root() *Code { return f.root }
 func (f *FieldInfo) StructOrArrayString() string {
 	if f.IsArray {

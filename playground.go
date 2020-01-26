@@ -105,14 +105,15 @@ func filesHandler(workingDir string, statikFS http.FileSystem, testMode bool) ht
 	}
 	var idxTemplate *template.Template
 	// prepare index.html
-	if testMode {
-		idxTemplate = indexTemplateLocal(workingDir)
-	} else {
+	if !testMode {
 		idxTemplate = indexTemplate(statikFS)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case indexHTML, "/":
+			if testMode {
+				idxTemplate = indexTemplateLocal(workingDir) // reload template
+			}
 			if err := idxTemplate.ExecuteTemplate(w, "index", info); err != nil {
 				log.Printf("error producing index template : %v", err)
 				return
@@ -124,7 +125,7 @@ func filesHandler(workingDir string, statikFS http.FileSystem, testMode bool) ht
 				provideFile(w, statikFS, r.URL.Path)
 			}
 		case semanticCss, codeMirrorCss, codeMirrorTheme:
-			w.Header().Set("Content-Type", "application/css")
+			w.Header().Set("Content-Type", "text/css")
 			provideFile(w, statikFS, r.URL.Path)
 		case jQuery, semanticJs, codeMirrorJs, riotJs, goJs, matchBracketsJs:
 			provideFile(w, statikFS, r.URL.Path)

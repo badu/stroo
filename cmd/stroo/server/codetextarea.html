@@ -62,6 +62,7 @@
 			var changeHandler = this.props.change
 			var id = this.props.id
 			var currentSource = ""
+			var that = this
 			this.codeMirror.on('change', function(who, event){
 				if (event.origin != "setValue"){
 					//console.log('event', event)
@@ -70,45 +71,55 @@
 					cachedTimeout = setTimeout(function(){changeHandler(id, currentSource)}, 1000) // wait a second
 				}
 			})
+			if (id == "preview" || id == "otherPreview"){
+				// feature : double click where you want the preview to auto-scroll after update
+				this.codeMirror.on('dblclick', function(who){
+					const cursor = who.getCursor()
+					that.state.currentLine = cursor.line
+				})
+			}
         },
 		onBeforeUpdate(){
 			var parentState = this.props.parent.state
 			var unchanged = this.codeMirror.getValue() == this.state.placeHolder
-			if (this.props.id == "template"){
-				var lineNumber = parentState.templateCurrentLine
-				if (lineNumber > 0 && this.state.currentLine != lineNumber){
-					if (lineNumber >= this.codeMirror.lineCount()){
-						lineNumber = this.codeMirror.lineCount() - 1 // fix for codemirror which counts minus one
-					}
-					this.codeMirror.scrollIntoView({line:lineNumber, char:1}, 200)
-					this.state.currentLine = lineNumber
-				}
-			}
-			if (this.props.id == "source"){
-				var lineNumber = parentState.sourceCurrentLine
-				if (lineNumber > 0 && this.state.currentLine != lineNumber){
-					if (lineNumber >= this.codeMirror.lineCount()){
-						lineNumber = this.codeMirror.lineCount() - 1 // fix for codemirror which counts minus one
-					}
-					this.codeMirror.scrollIntoView({line:lineNumber, char:1}, 200)
-					this.state.currentLine = lineNumber
-				}
-			}
-			// it turns out that I don't know that much RiotJs
+			var id = this.props.id
 			this.state.busy = this.props.busy
-			if (this.props.id == "template" && unchanged){
-				// code mirror crashes if setting value to undefined
-				if (parentState.templateCode != undefined && parentState.templateCode != ""){
-					this.codeMirror.setValue(parentState.templateCode)
-				}
-			} else if (this.props.id == "source" && unchanged){
-				// same as above
-				if (parentState.sourceCode != undefined && parentState.sourceCode != ""){
-					this.codeMirror.setValue(parentState.sourceCode)
-				}
-			} else if (this.props.id == "preview" || this.props.id == "otherPreview"){
-				// update every time
-				this.codeMirror.setValue(parentState.previewCode)
+			switch (id){
+				case "template":
+				case "source":
+					var willSet = id == "template" ? (parentState.templateCode != undefined && parentState.templateCode != "") : (parentState.sourceCode != undefined && parentState.sourceCode != "")
+					if (unchanged && willSet){
+						// code mirror crashes if setting value to undefined
+						if (id == "template"){
+							this.codeMirror.setValue(parentState.templateCode)
+						}else{
+							this.codeMirror.setValue(parentState.sourceCode)
+						}
+					}
+					var numberOfLines = this.codeMirror.lineCount()
+					var lineNumber = id == "template" ? parentState.templateCurrentLine : parentState.sourceCurrentLine
+					if (lineNumber > 0 && this.state.currentLine != lineNumber){
+						if (lineNumber >= numberOfLines){
+							lineNumber = numberOfLines - 1 // fix for codemirror which counts minus one
+						}
+						this.codeMirror.scrollIntoView({line:lineNumber, char:1}, 200)
+						this.state.currentLine = lineNumber
+					}
+				break
+
+				case "preview":
+				case "otherPreview":
+					this.codeMirror.setValue(parentState.previewCode)
+					// feature : double click where you want the preview to auto-scroll after update
+					if (this.state.currentLine > 0){
+						var numberOfLines = this.codeMirror.lineCount()
+						if (this.state.currentLine >= numberOfLines){
+							this.codeMirror.scrollIntoView({line:this.state.currentLine-1, char:1}, 200)
+						}else{
+							this.codeMirror.scrollIntoView({line:this.state.currentLine, char:1}, 200)
+						}
+					}
+				break
 			}
 		},
 		onUpdated(){

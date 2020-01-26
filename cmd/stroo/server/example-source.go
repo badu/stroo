@@ -5,11 +5,6 @@ import (
 )
 
 type ShopCart struct {
-	string                            // embedded field
-	UserData     `json:"usr"`         // embedded struct
-	*UserDataPtr `json:"anotherData"` // embedded pointer
-	Times                             // embedded array
-	unexported   string               // unexported field
 	// basic fields
 	Bool                   bool       `json:"boolean_value"`
 	BoolPtr                *bool      `json:"a_BoolPtr"`
@@ -45,6 +40,8 @@ type ShopCart struct {
 	Items                  CartItems  `json:"items"`                   // normal slice
 	Taxes                  *Taxes     `json:"appliedTaxes"`            // pointer to slice
 	ArrayOfPointerToImport Times      `json:"arrayOfPtrToTimeDotTime"` // slice of fields from another package
+	UserData                          // embedded struct
+	*UserDataPtr                      // pointer to embedded struct
 }
 
 type ItemPrice struct {
@@ -59,12 +56,16 @@ type CartItem struct {
 	Tax           *ItemPrice     `json:"tax"`
 	ProductImages *ProductImages `json:"images"` // pointer to slice of pointer to alias
 }
-type Taxes []ItemPrice         // classic slice
-type CartItems []*CartItem     // slice of pointers
-type ImageURL string           // string alias
-type ImagesPtr *string         // pointer to string alias
-type Timer time.Ticker         // external alias
-type Timer2 *time.Ticker       // external alias
+
+type Taxes []ItemPrice     // classic slice
+type CartItems []*CartItem // slice of pointers
+
+type ImageURL string   // string alias
+type ImagesPtr *string // pointer to string alias
+
+type Timer time.Ticker   // external alias
+type Timer2 *time.Ticker // external alias
+
 type ProductImages []*ImageURL // slice of pointer to alias
 
 // times comment @time.Time
