@@ -29,7 +29,9 @@ type PackageInfo struct {
 
 func (pkg *PackageInfo) LoadImports(fromImports []*types.Package) {
 	for _, imprt := range fromImports {
-		log.Printf("Adding %q %q to imports", imprt.Path(), imprt.Name())
+		if pkg.PrintDebug {
+			log.Printf("Adding %q %q to imports", imprt.Path(), imprt.Name())
+		}
 		pkg.Imports = append(pkg.Imports, &Imports{Path: imprt.Path(), Name: imprt.Name()})
 	}
 }
@@ -119,7 +121,7 @@ func (pkg *PackageInfo) DirectIdent(ident *ast.Ident, comment *ast.CommentGroup)
 	newInfo := TypeInfo{Comment: comment}
 	found := false
 	switch ident.Name {
-	case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "complex64", "complex128", "string":
+	case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64", "complex64", "complex128", "string":
 		newInfo.Kind = ident.Name
 		newInfo.Name = ident.Name
 		found = true
@@ -177,7 +179,7 @@ func (pkg *PackageInfo) DirectPointer(ptr *ast.StarExpr, comment *ast.CommentGro
 	case *ast.Ident:
 		found := false
 		switch ptrType.Name {
-		case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "complex64", "complex128", "string":
+		case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64", "complex64", "complex128", "string":
 			newInfo.Kind = ptrType.Name
 			newInfo.Name = ptrType.Name
 			found = true
@@ -226,7 +228,7 @@ func (pkg *PackageInfo) DirectPointer(ptr *ast.StarExpr, comment *ast.CommentGro
 
 func (pkg *PackageInfo) ReadIdent(ident *ast.Ident, info *FieldInfo, comment *ast.CommentGroup) error {
 	switch ident.Name {
-	case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "complex64", "complex128", "string":
+	case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64", "complex64", "complex128", "string":
 		info.IsBasic = true
 		info.Kind = ident.Name
 	case "chan":
@@ -374,7 +376,13 @@ func (pkg *PackageInfo) ReadStructInfo(astSpec *ast.TypeSpec, comment *ast.Comme
 				log.Printf("[error] in %q while reading selector : %v", info.Name, err)
 				return fmt.Errorf("error reading selector : %v", err)
 			}
+		case *ast.FuncType:
+			log.Printf("[TODO] read func %q on field %q of type %T : %#v", info.Name, newField.Kind, fieldType, fieldType)
+		case *ast.InterfaceType:
+			log.Printf("[TODO] read interface %q on field %q of type %T : %#v", info.Name, newField.Kind, fieldType, fieldType)
+			// ignore ??
 		default:
+			log.Printf("[error] in %q unknown field %q of type %T", info.Name, newField.Kind, fieldType)
 			return fmt.Errorf(ErrNotImplemented, fieldType, info.Name)
 		}
 

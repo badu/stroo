@@ -2,7 +2,6 @@ package stroo
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"github.com/badu/stroo/dbg_prn"
 	"go/ast"
@@ -22,7 +21,7 @@ import (
 )
 
 const (
-	toolName = "stroo"
+	ToolName = "stroo"
 	toolDoc  = "extracts declaration of a struct with it's methods"
 )
 
@@ -38,11 +37,10 @@ type CodeConfig struct {
 
 type Command struct {
 	CodeConfig
-	CodeBuilder *analysis.Analyzer
-	Inspector   *analysis.Analyzer
-	WorkingDir  string
-	Result      *PackageInfo
-	Out         bytes.Buffer
+	Inspector  *analysis.Analyzer
+	WorkingDir string
+	Result     *PackageInfo
+	Out        bytes.Buffer
 }
 
 // builds a new command from the analyzer (which holds the inspector) and sets the Run function
@@ -64,9 +62,8 @@ func NewCommand(analyzer *analysis.Analyzer) *Command {
 			OutputFile:       analyzer.Flags.Lookup("output").Value.String(),
 			SelectedPeerType: analyzer.Flags.Lookup("target").Value.String(),
 		},
-		WorkingDir:  workingDir,
-		CodeBuilder: analyzer,
-		Inspector:   analyzer.Requires[0], // needed in Run of the Command
+		WorkingDir: workingDir,
+		Inspector:  analyzer.Requires[0], // needed in Run of the Command
 	}
 	analyzer.Run = result.Run // set the Run function to the analyzer
 	return &result
@@ -85,7 +82,7 @@ func DefaultAnalyzer() *analysis.Analyzer {
 	}
 	// the analyzer that loads code with data
 	result := &analysis.Analyzer{
-		Name:             toolName,
+		Name:             ToolName,
 		Doc:              toolDoc,
 		RunDespiteErrors: true,
 		Requires:         []*analysis.Analyzer{inspectAlyzer},
@@ -100,8 +97,8 @@ func DefaultAnalyzer() *analysis.Analyzer {
 	result.Flags.Bool("debugPrint", false, "print debugging info")
 	result.Flags.Usage = func() {
 		descMultiline := strings.Split(toolDoc, "\n\n")
-		_, _ = fmt.Fprintf(os.Stderr, "%s: %s\n\n", toolName, descMultiline[0])
-		_, _ = fmt.Fprintf(os.Stderr, "Usage: %s [-flag] [package]\n", toolName)
+		_, _ = fmt.Fprintf(os.Stderr, "%s: %s\n\n", ToolName, descMultiline[0])
+		_, _ = fmt.Fprintf(os.Stderr, "Usage: %s [-flag] [package]\n", ToolName)
 		if len(descMultiline) > 1 {
 			_, _ = fmt.Fprintln(os.Stderr, strings.Join(descMultiline[1:], "\n\n"))
 		}
@@ -109,42 +106,6 @@ func DefaultAnalyzer() *analysis.Analyzer {
 		result.Flags.PrintDefaults()
 	}
 	return result
-}
-
-func Prepare() *Command {
-	analyzer := DefaultAnalyzer()
-	// set the logger
-	log.SetFlags(0)
-	log.SetPrefix(toolName + ": ")
-	// check flags
-	if err := analyzer.Flags.Parse(os.Args[1:]); err != nil {
-		log.Fatalf("error parsing flags: %v", err)
-	}
-	// create a command from our analyzer (so we don't pass parameters around)
-	return NewCommand(analyzer)
-}
-
-// print the current configuration
-func (c *Command) Print(withRunningFolder bool) string {
-	result := ""
-	if withRunningFolder {
-		result = fmt.Sprintf("running in folder %q\n", c.WorkingDir)
-	}
-	c.CodeBuilder.Flags.VisitAll(func(f *flag.Flag) {
-		if !withRunningFolder {
-			result += "-"
-		}
-		result += f.Name + "=" + f.Value.String() + " "
-	})
-	return result
-}
-
-// check if vital things are missing from the configuration
-func (c *Command) Check() {
-	if c.TemplateFile == "" || c.SelectedType == "" || (!c.TestMode && c.OutputFile == "") {
-		c.CodeBuilder.Flags.Usage()
-		os.Exit(1)
-	}
 }
 
 // analyzer will Run this and we're creating Package info
@@ -229,39 +190,7 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 	return result, err
 }
 
-// load package
-func (c *Command) Load(path string) (*packages.Package, error) {
-	conf := packages.Config{
-		Mode:  packages.NeedName | packages.NeedFiles | packages.NeedImports | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax,
-		Tests: true,
-	}
-
-	// did you knew that you can `loadedPackages, err := packages.Load(config, fmt.Sprintf("file=%s", filename))`
-	loadedPackage, err := packages.Load(&conf, path) //supports variadic multiple paths but we're using only one
-	if err != nil {
-		log.Printf("error loading package %q : %v\n", path, err)
-		return nil, err
-	}
-
-	n := packages.PrintErrors(loadedPackage)
-	switch n {
-	case 0:
-	default:
-		return nil, fmt.Errorf("%d error(s) encountered during load", n)
-	}
-
-	switch len(loadedPackage) {
-	case 0:
-		return nil, fmt.Errorf("%q matched no packages\n", path)
-	case 1:
-		// only allowed one
-	default:
-		return nil, fmt.Errorf("one pacakge at a time required")
-	}
-	return loadedPackage[0], nil
-}
-
-func (c *Command) Analyse(loadedPackage *packages.Package) error {
+func (c *Command) Analyse(analyzer *analysis.Analyzer, loadedPackage *packages.Package) error {
 	type key struct {
 		*analysis.Analyzer
 		*packages.Package
@@ -294,7 +223,7 @@ func (c *Command) Analyse(loadedPackage *packages.Package) error {
 		return action
 	}
 
-	result := mkAction(c.CodeBuilder, loadedPackage)
+	result := mkAction(analyzer, loadedPackage)
 	result.exec()
 
 	if result.err != nil {
@@ -308,7 +237,7 @@ func (c *Command) Analyse(loadedPackage *packages.Package) error {
 	return nil
 }
 
-func (c *Command) Generate() error {
+func (c *Command) Generate(analyzer *analysis.Analyzer) error {
 	result, err := c.NewCode()
 	if err != nil {
 		return fmt.Errorf("error making code object : %v", err)
@@ -321,7 +250,7 @@ func (c *Command) Generate() error {
 
 	// forced add header
 	var src []byte
-	src = append(src, result.Header(c.Print(false))...)
+	src = append(src, result.Header(Print(analyzer, false))...)
 	src = append(src, buf.Bytes()...)
 	// format the source
 	formatted, err := format.Source(src)

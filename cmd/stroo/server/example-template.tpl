@@ -1,4 +1,4 @@
-{{ if .Declare "Stringer" }}{{ end }}{{/* pass kind of methods we're going to generate */}}
+{{ if .Declare "String" }}{{ end }}{{/* pass kind of methods we're going to generate */}}
 {{- .AddToImports "bytes" }}{{/* knowing that we're going to use this packges */}}
 {{- .AddToImports "strconv" }}{{/* we're adding them to imports */}}
 {{- .AddToImports "fmt" }}
@@ -102,14 +102,14 @@ sb.WriteString("{{.Prefix}}{{.Name}}="+{{ if .IsPointer }}*{{ end }}st.{{.Prefix
 				{{ else if .IsBasic }}
 					{{- template "BasicType" . -}}
 				{{ else -}}
-      				// implement me!
+      				/** implement me {{ .Root.Implements .Package .Kind }}! **/
       			{{ end }}
 			{{ end -}}
 		{{ end }}
 		return sb.String()
 	}
 {{ end }}
-{{ define "Stringer" }}
+{{ define "String" }}
 	{{- with . }}
 		{{- if .IsArray }}{{/* cannot be anything else than Array or Struct */}}
 			{{ template "ArrayStringer" . }}
@@ -119,7 +119,7 @@ sb.WriteString("{{.Prefix}}{{.Name}}="+{{ if .IsPointer }}*{{ end }}st.{{.Prefix
 	{{ end }}
 {{ end }}
 {{- with .Main -}}
-	{{ template "Stringer" . }}
+	{{ template "String" . }}
 {{ end }}
 {{ range .ListStored }}
 {{.}}

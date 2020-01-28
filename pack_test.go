@@ -712,8 +712,9 @@ func TestLoadWithCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error loading : %v", err)
 	}
-	command := NewCommand(DefaultAnalyzer())
-	if err := command.Analyse(thePackages[0]); err != nil {
+	codeBuilder := DefaultAnalyzer()
+	command := NewCommand(codeBuilder)
+	if err := command.Analyse(codeBuilder, thePackages[0]); err != nil {
 		t.Fatalf("error analyzing package : %v", err)
 	}
 	t.Logf("Result : %s", dbg_prn.SPrint(command.Result))

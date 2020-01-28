@@ -41,6 +41,10 @@ func (f *FieldInfo) StructOrArrayString() string {
 	return "nor struct nor array"
 }
 
+func (f *FieldInfo) PackageAndKind() string {
+	return f.Package + "." + f.Kind
+}
+
 // in case we need to print `*Something` instead of `Something`
 func (f *FieldInfo) RealKind() string {
 	if f.IsPointer {

@@ -176,16 +176,14 @@ func (c *Code) AddToImports(imp string) string {
 // this should be called to allow the generator to know which kind of methods we're generating
 func (c *Code) Declare(name string) error {
 	if name == "" {
-		log.Printf("error : cannot declare empty template name (e.g.`Stringer`)")
-
-		return errors.New("error : cannot declare empty template name (e.g.`Stringer`)")
-	}
-	if c.Main == nil {
-		log.Printf("error : main operating type was not selected")
-		return errors.New("error : main operating type was not selected - you cannot recurse")
+		//log.Printf("error : cannot declare empty template name (e.g.`String` for Stringer interface implementation)")
+		return errors.New("error : cannot declare empty template name (e.g.`String` for Stringer interface implementation)")
 	}
 	c.templateName = name
-	c.keeper[name+c.Main.Name] = "" // set it to empty in case of self reference, so template will exit
+	// if Main type was not selected, there is no point in setting it into keeper (dev might intended to work with interfaces)
+	if c.Main != nil {
+		c.keeper[name+c.Main.Name] = "" // set it to empty in case of self reference, so template will exit
+	}
 	return nil
 }
 
@@ -196,6 +194,35 @@ func (c *Code) HasNotGenerated(kind string) (bool, error) {
 	}
 	_, has := c.keeper[c.templateName+kind]
 	return !has, nil
+}
+
+// check if a kind has a method called the same as the template being declared
+func (c *Code) Implements(pckage, kind string) (bool, error) {
+	if c.templateName == "" {
+		return false, errors.New("you haven't called Declare(methodName) to allow replacing existing generated code")
+	}
+	if pckage == "" {
+		nt, err := c.StructByKey(kind)
+		if nt == nil || err != nil {
+			log.Printf("lookup error : %v", err)
+			return false, err
+		}
+	} else {
+		log.Printf("we should load : %q and lookup for %q", pckage, kind)
+		// we have to load the package
+		loadedPackage, err := LoadPackage(pckage)
+		if err != nil {
+			log.Printf("load error : %v", err)
+			return false, err
+		}
+		codeBuilder := DefaultAnalyzer()
+		command := NewCommand(codeBuilder)
+		if err := command.Analyse(codeBuilder, loadedPackage); err != nil {
+			return false, fmt.Errorf("error analyzing package : %v", err)
+		}
+		log.Printf("package loaded :\n %#v\n", command.Result)
+	}
+	return true, nil
 }
 
 // uses the template name to apply the template recursively
@@ -219,9 +246,6 @@ func (c *Code) RecurseGenerate(kind string) error {
 
 	nt, err := c.StructByKey(kind)
 	if nt == nil || err != nil {
-		if c.CodeConfig.DebugPrint {
-			log.Printf("probably %q doesn't exist : %v", kind, err)
-		}
 		return err
 	}
 	err = c.tmpl.ExecuteTemplate(&buf, c.templateName, nt)

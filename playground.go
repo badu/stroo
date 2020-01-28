@@ -323,11 +323,13 @@ func strooHandler(command *Command) http.HandlerFunc {
 				respond(w, MalformedRequest{ErrorMessage: "expecting exactly one package", Type: OnePackage})
 				return
 			}
+
 			// create a temporary command to analyse the loaded package
-			tempCommand := NewCommand(DefaultAnalyzer())
+			codeBuilder := DefaultAnalyzer()
+			tempCommand := NewCommand(codeBuilder)
 			tempCommand.TestMode = command.TestMode
 			tempCommand.DebugPrint = command.DebugPrint
-			if err := tempCommand.Analyse(thePackages[0]); err != nil {
+			if err := tempCommand.Analyse(codeBuilder, thePackages[0]); err != nil {
 				respond(w, InvalidAnalysis, err.Error())
 				return
 			}
