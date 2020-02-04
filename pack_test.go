@@ -136,65 +136,77 @@ var cases = []testCase{
 			Kind:        "T15",
 			Fields: Fields{
 				FieldInfo{
-					Kind:       "EmbeddedS",
-					IsEmbedded: true,
-					IsStruct:   true,
+					PackagePath: testPackagePath,
+					Package:     testPackage,
+					Kind:        "EmbeddedS",
+					IsEmbedded:  true,
+					IsStruct:    true,
 					Comment: &ast.CommentGroup{
 						List: []*ast.Comment{
 							{
-								Slash: 52,
+								Slash: 524931,
 								Text:  "// embedded",
 							},
 						},
 					},
 				},
 				FieldInfo{
-					Kind:       "EmbeddedS2",
-					IsPointer:  true,
-					IsEmbedded: true,
-					IsStruct:   true,
+					PackagePath: testPackagePath,
+					Package:     testPackage,
+					Kind:        "EmbeddedS2",
+					IsPointer:   true,
+					IsEmbedded:  true,
+					IsStruct:    true,
 					Comment: &ast.CommentGroup{
 						List: []*ast.Comment{
 							{
-								Slash: 82,
+								Slash: 524963,
 								Text:  "// embedded pointer",
 							},
 						},
 					},
 				},
 				FieldInfo{
+					PackagePath: testPackagePath,
+					Package:     testPackage,
 					Kind:        "error",
 					IsEmbedded:  true,
 					IsInterface: true,
 					Comment: &ast.CommentGroup{
 						List: []*ast.Comment{
 							{
-								Slash: 114,
-								Text:  "// embedded error ",
+								Slash: 525003,
+								Text:  "// embedded error",
 							},
 						},
 					},
 				},
 				FieldInfo{
-					Name:       "Name",
-					Kind:       "string",
-					IsBasic:    true,
-					IsExported: true,
+					PackagePath: testPackagePath,
+					Package:     testPackage,
+					Name:        "Name",
+					Kind:        "string",
+					IsBasic:     true,
+					IsExported:  true,
 					Tags: Tags{
 						&Tag{Key: "json", Name: "name"},
 					},
 				},
 				FieldInfo{
-					Name:       "PtrName",
-					Kind:       "string",
-					IsBasic:    true,
-					IsPointer:  true,
-					IsExported: true,
+					PackagePath: testPackagePath,
+					Package:     testPackage,
+					Name:        "PtrName",
+					Kind:        "string",
+					IsBasic:     true,
+					IsPointer:   true,
+					IsExported:  true,
 				},
 				FieldInfo{
-					Name:    "unexported",
-					Kind:    "string",
-					IsBasic: true,
+					PackagePath: testPackagePath,
+					Package:     testPackage,
+					Name:        "unexported",
+					Kind:        "string",
+					IsBasic:     true,
 				},
 			},
 		},
@@ -209,24 +221,30 @@ var cases = []testCase{
 			Package:     testPackage,
 			Fields: Fields{
 				FieldInfo{
-					Name:       "S",
-					Kind:       "S",
-					IsExported: true,
-					IsStruct:   true,
+					PackagePath: testPackagePath,
+					Package:     testPackage,
+					Name:        "S",
+					Kind:        "S5",
+					IsExported:  true,
+					IsStruct:    true,
 				},
 				FieldInfo{
-					Name:       "Itemz",
-					Kind:       "Items",
-					IsExported: true,
+					PackagePath: testPackagePath,
+					Package:     testPackage,
+					Name:        "Itemz",
+					Kind:        "Items",
+					IsExported:  true,
 					Tags: Tags{
 						&Tag{Key: "json", Name: "itmz"},
 					},
 					IsArray: true,
 				},
 				FieldInfo{
-					Name:       "Pricez",
-					Kind:       "Prices",
-					IsExported: true,
+					PackagePath: testPackagePath,
+					Package:     testPackage,
+					Name:        "Pricez",
+					Kind:        "Prices",
+					IsExported:  true,
 					Tags: Tags{
 						&Tag{Key: "json", Name: "prcz"},
 					},
@@ -245,9 +263,11 @@ var cases = []testCase{
 			Kind:        "T17",
 			Fields: Fields{
 				FieldInfo{
-					Kind:       "Items",
-					IsArray:    true,
-					IsEmbedded: true,
+					Package:     testPackage,
+					PackagePath: testPackagePath,
+					Kind:        "Items",
+					IsArray:     true,
+					IsEmbedded:  true,
 				},
 			},
 		},
@@ -262,11 +282,13 @@ var cases = []testCase{
 			PackagePath: testPackagePath,
 			Fields: Fields{
 				FieldInfo{
-					Name:       "Child",
-					Kind:       "T18",
-					IsPointer:  true,
-					IsExported: true,
-					IsStruct:   true,
+					Package:     testPackage,
+					PackagePath: testPackagePath,
+					Name:        "Child",
+					Kind:        "T18",
+					IsPointer:   true,
+					IsExported:  true,
+					IsStruct:    true,
 					Tags: Tags{
 						&Tag{Key: "json", Name: "ptr_child"},
 					},
@@ -274,6 +296,35 @@ var cases = []testCase{
 			},
 		},
 	}, // 18 - circular reference
+}
+
+func TestLoadExamplePackage(t *testing.T) {
+	loadedPackage, err := LoadPackage(testPackagePath)
+	if err != nil {
+		t.Fatalf("error : %v", err)
+	}
+	codeBuilder := DefaultAnalyzer()
+	command := NewCommand(codeBuilder)
+	if err := command.Analyse(codeBuilder, loadedPackage); err != nil {
+		t.Fatalf("error : %v", err)
+	}
+	for idx := 0; idx < len(cases); idx++ {
+		currentType := cases[idx].outputName
+		resultType := command.Result.Types.Extract(currentType)
+		if resultType == nil {
+			var knownTypes []string
+			for _, sType := range command.Result.Types {
+				knownTypes = append(knownTypes, sType.Kind)
+			}
+			t.Fatalf("error : %q not found in types\nknown types:\n%s", currentType, strings.Join(knownTypes, "\n"))
+		}
+		if compared := halp.Equal(resultType, cases[idx].output); compared != nil {
+			t.Logf("%d. %#v", idx, compared)
+			t.Fatalf("expected :\n%s\nactual :\n%s\n", halp.SPrint(cases[idx].output), halp.SPrint(resultType))
+		}
+	}
+
+	t.Logf("ran %d tests and finished.", len(cases))
 }
 
 func TestLoadWithExternal(t *testing.T) {
@@ -516,33 +567,4 @@ func TestTypesInfoDefs(t *testing.T) {
 			}
 		}
 	}
-}
-
-func TestLoadExamplePackage(t *testing.T) {
-	loadedPackage, err := LoadPackage(testPackagePath)
-	if err != nil {
-		t.Fatalf("error : %v", err)
-	}
-	codeBuilder := DefaultAnalyzer()
-	command := NewCommand(codeBuilder)
-	if err := command.Analyse(codeBuilder, loadedPackage); err != nil {
-		t.Fatalf("error : %v", err)
-	}
-	for idx := 0; idx < len(cases); idx++ {
-		currentType := cases[idx].outputName
-		resultType := command.Result.Types.Extract(currentType)
-		if resultType == nil {
-			var knownTypes []string
-			for _, sType := range command.Result.Types {
-				knownTypes = append(knownTypes, sType.Kind)
-			}
-			t.Fatalf("error : %q not found in types\nknown types:\n%s", currentType, strings.Join(knownTypes, "\n"))
-		}
-		if compared := halp.Equal(resultType, cases[idx].output); compared != nil {
-			t.Logf("%#v", compared)
-			t.Fatalf("expected :\n%s\nactual :\n%s\n", halp.SPrint(cases[idx].output), halp.SPrint(resultType))
-		}
-	}
-
-	t.Log("test finished.")
 }

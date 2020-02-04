@@ -139,7 +139,7 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 		}
 		switch nodeType := node.(type) {
 		case *ast.FuncDecl:
-			if fnInfo, infoErr := readFn(nodeType); infoErr == nil {
+			if fnInfo, infoErr := readFuncDecl(nodeType); infoErr == nil {
 				fnInfo.Package = pass.Pkg.Name()
 				fnInfo.PackagePath = pass.Pkg.Path()
 				discoveredFuncs = append(discoveredFuncs, *fnInfo)
@@ -152,12 +152,13 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 					if typeSpec.Name == nil {
 						log.Fatalf("type spec has name nil : %#v", typeSpec)
 					}
-					switch unknownType := typeSpec.Type.(type) {
+					switch typedType := typeSpec.Type.(type) {
 					case *ast.InterfaceType:
 						// e.g. `type Intf interface{}`
 						typeInfo, infoErr := readType(pass.Pkg, typeSpec, nodeType.Doc)
 						if infoErr == nil {
 							result.Types = append(result.Types, typeInfo)
+							result.Interfaces = append(result.Interfaces, typeInfo)
 						} else {
 							log.Printf("error reading interface : %v", infoErr)
 						}
@@ -180,7 +181,7 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 						}
 					case *ast.Ident:
 						// e.g. : `type String string`
-						fieldInfo, infoErr := readIdent(unknownType, nodeType.Doc)
+						fieldInfo, infoErr := readIdent(typedType, nodeType.Doc)
 						if infoErr == nil {
 							typeInfo := &TypeInfo{}
 							typeInfo.Package = pass.Pkg.Name()
@@ -194,7 +195,7 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 						}
 					case *ast.SelectorExpr:
 						// e.g. : `type Timer time.Ticker`
-						fieldInfo, infoErr := readSelector(unknownType, nodeType.Doc)
+						fieldInfo, infoErr := readSelector(typedType, nodeType.Doc)
 						if infoErr == nil {
 							typeInfo := &TypeInfo{}
 							typeInfo.Package = pass.Pkg.Name()
@@ -209,7 +210,7 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 						}
 					case *ast.StarExpr:
 						// e.g. : `type Timer *time.Ticker`
-						fieldInfo, infoErr := readPointer(unknownType, nodeType.Doc)
+						fieldInfo, infoErr := readPointer(typedType, nodeType.Doc)
 						if infoErr == nil {
 							typeInfo := &TypeInfo{}
 							typeInfo.Package = pass.Pkg.Name()
@@ -222,15 +223,24 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 							log.Printf("error reading pointer : %v", infoErr)
 						}
 					default:
-						log.Printf("have you modified the filter ? Unhandled : %#v\n", unknownType)
+						log.Printf("have you modified the filter ? Unhandled : %#v\n", typedType)
 					}
 				}
 			case token.VAR, token.CONST:
 				for _, spec := range nodeType.Specs {
 					switch vl := spec.(type) {
 					case *ast.ValueSpec:
-						if infoErr := result.ReadVariablesInfo(spec, vl); infoErr != nil {
-							err = infoErr
+						if len(vl.Names) > 0 {
+							def := result.TypesInfo.Defs[vl.Names[0]]
+							if def != nil {
+								if results, infoErr := readValue(def, vl); infoErr == nil {
+									result.Vars = append(result.Vars, results...)
+								} else {
+									log.Printf("error reading variable/constant : %v", infoErr)
+								}
+							} else {
+								log.Printf("%q was not found ", vl.Names[0])
+							}
 						}
 					}
 				}
@@ -238,19 +248,63 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 		}
 	})
 
+	// fixing funcs (methods versus normal funcs)
 	for _, fn := range discoveredFuncs {
+		// fix variable types
+		for idx := range fn.Params {
+			for _, varType := range result.Types {
+				if varType.Kind == result.Vars[idx].Kind {
+					result.Vars[idx].Type = varType
+					break
+				}
+				if varType.Name == result.Vars[idx].Kind {
+					result.Vars[idx].Type = varType
+					break
+				}
+			}
+		}
+		// fix variable types
+		for idx := range fn.Returns {
+			for _, varType := range result.Types {
+				if varType.Kind == result.Vars[idx].Kind {
+					result.Vars[idx].Type = varType
+					break
+				}
+				if varType.Name == result.Vars[idx].Kind {
+					result.Vars[idx].Type = varType
+					break
+				}
+			}
+		}
+		// doesn't have a receiver : normal function
 		if fn.ReceiverType == "" {
 			result.Functions = append(result.Functions, fn)
 			continue
 		}
 
 		// look into structs and attach if found
-		if structInfo := result.Types.Extract(fn.ReceiverType); structInfo != nil {
-			structInfo.MethodList = append(structInfo.MethodList, fn)
+		for _, receiverType := range result.Types {
+			if receiverType.Kind == fn.ReceiverType {
+				receiverType.MethodList = append(receiverType.MethodList, fn)
+				break
+			}
 		}
 
-		// ??? function
-		//log.Printf("don't know what to do with function %#v", fn)
+		log.Printf("don't know what to do with function %#v", fn)
+	}
+
+	// fix variable types
+	for idx := range result.Vars {
+		for _, varType := range result.Types {
+			if varType.Kind == result.Vars[idx].Kind {
+				result.Vars[idx].Type = varType
+				break
+			}
+			if varType.Name == result.Vars[idx].Kind {
+				result.Vars[idx].Type = varType
+				break
+			}
+		}
 	}
 
 	return result, err

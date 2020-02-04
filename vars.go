@@ -2,7 +2,8 @@ package stroo
 
 type VarInfo struct {
 	Name string
-	Type string // TODO : use TypeInfo
+	Type *TypeInfo
+	Kind string
 }
 
 type Vars []VarInfo

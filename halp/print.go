@@ -2,6 +2,7 @@ package halp
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log"
