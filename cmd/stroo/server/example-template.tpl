@@ -35,12 +35,15 @@ sb.WriteString("{{.Prefix}}{{.Name}}="+{{ if .IsPointer }}*{{ end }}st.{{.Prefix
 	{{- template "PointerClose" . -}}
 {{ end }}
 {{ define "Recurse" }}
-	{{- if (.Root.HasNotGenerated .Kind) -}}
-		{{- if .Root.RecurseGenerate .Kind -}}{{- end -}}
+	{{- if eq .Package .Root.PackageInfo.Name -}}
+		{{- if (.Root.HasNotGenerated .Package .Kind) -}}
+			{{- if .Root.RecurseGenerate .Package .Kind -}}{{- end -}}
+		{{- end -}}
 	{{- end -}}
+	// checking equality of {{.Package}} and {{.Root.PackageInfo.Name}}
 {{ end }}
 {{ define "Embedded" }}
-	// embedded `{{.StructOrArrayString}}` of `{{.RealKind}}` with prefix `{{.Prefix}}`
+	// embedded `{{.StructOrArrayString}}` of `{{.RealKind}}` with prefix `{{.Prefix}}` : `{{.Package}}`.`{{.PackagePath}}`
 	{{ template "Recurse" . -}}
 	{{- if .IsStruct }}		
 		{{- $outerName := concat (concat .Name ".") .Prefix -}}
@@ -62,10 +65,10 @@ sb.WriteString("{{.Prefix}}{{.Name}}="+{{ if .IsPointer }}*{{ end }}st.{{.Prefix
 			{{ $err = $field.SetPrefix "" }} {{/*reset prefix, so we won't print others fields prefixes*/}}
 		{{- end -}}
 	{{ else if .IsArray }}
-		// todo : embedded array
+		// todo : embedded array : `{{.Package}}`.`{{.PackagePath}}`
 		sb.WriteString("{{.Name}}:\n"+fmt.Sprintf("%s", st.{{.Name}}))
 	{{ else }}
-		// implement me : embedded SOMETHING else {{.}}
+		// implement me : embedded SOMETHING : `{{.Package}}`.`{{.PackagePath}}` else {{.}} 
 	{{ end }}
 {{ end }}
 {{ define "StructOrArray" }}
@@ -73,14 +76,14 @@ sb.WriteString("{{.Prefix}}{{.Name}}="+{{ if .IsPointer }}*{{ end }}st.{{.Prefix
 	{{- if .IsEmbedded -}}
 		{{- template "Embedded" . -}}
 	{{ else }}
-		// {{.StructOrArrayString}} field `{{.Name}}` of type `{{.RealKind}}`
+		// {{.StructOrArrayString}} field `{{.Name}}` of type `{{.RealKind}}` : `{{.Package}}`.`{{.PackagePath}}`
 		{{- template "Recurse" . }}
 		sb.WriteString("{{.Name}}:\n"+fmt.Sprintf("%s", st.{{.Name}}))
 	{{- end -}}
 	{{- template "PointerClose" . -}}
 {{ end }}
 {{ define "ArrayStringer" }}
-  // Stringer implementation for {{ .Name }} kind : {{.Kind}}
+  // Stringer implementation for array {{ .Name }} kind : {{.Kind}}
   func (st {{ .Name }}) String() string {
     var sb strings.Builder
     for _, el := range st {
@@ -91,7 +94,7 @@ sb.WriteString("{{.Prefix}}{{.Name}}="+{{ if .IsPointer }}*{{ end }}st.{{.Prefix
   }
 {{ end }}
 {{ define "StructStringer" }}
-	// Stringer implementation for {{ .Kind}}
+	// Stringer implementation for struct {{ .Kind}}
 	func (st {{ .Kind }}) String() string {
 		var sb strings.Builder
       	{{ if sort .Fields }}{{ end -}}
@@ -102,7 +105,7 @@ sb.WriteString("{{.Prefix}}{{.Name}}="+{{ if .IsPointer }}*{{ end }}st.{{.Prefix
 				{{ else if .IsBasic }}
 					{{- template "BasicType" . -}}
 				{{ else -}}
-      				/** implement me {{ .Root.Implements .Package .Kind }}! **/
+      				/** implement me {{ .Root.Implements . }}! **/
       			{{ end }}
 			{{ end -}}
 		{{ end }}

@@ -1,9 +1,10 @@
-package dbg_prn
+package halp
 
 import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"reflect"
 	"regexp"
@@ -31,8 +32,9 @@ var (
 	shortnameRegexp = regexp.MustCompile(`\s*([,;{}()])\s*`)
 	printerType     = reflect.TypeOf((*Printer)(nil)).Elem()
 	DefaultOpts     = PrintOpts{
-		SkipPackage: false,
+		SkipPackage: true,
 		SkipPrivate: true,
+		SkipZero:    true,
 		Excludes:    []*regexp.Regexp{regexp.MustCompile(`^(XXX_.*)$`)},
 		Separator:   " ",
 	}
@@ -529,4 +531,317 @@ func isPtr(value reflect.Value) bool {
 func isZero(value reflect.Value) bool {
 	return (isPtr(value) && value.IsNil()) ||
 		(value.IsValid() && value.CanInterface() && reflect.DeepEqual(value.Interface(), reflect.Zero(value.Type()).Interface()))
+}
+
+type OptName string
+
+const (
+	FloatPrecision   OptName = "FloatPrecision"
+	MaxDiff          OptName = "MaxDiff"
+	MaxDepth         OptName = "MaxDepth"
+	LogErrors        OptName = "LogErrors"
+	LookupUnexported OptName = "LookupUnexported"
+	IncludeNilSlices OptName = "IncludeNilSlices"
+
+	DefaultFloatPrecision int = 10
+	DefaultMaxDiff        int = 10
+)
+
+type CompareOptions struct {
+	Name  OptName
+	Value interface{}
+}
+type cmpResult struct {
+	diff             []string
+	buff             []string
+	floatFormat      string
+	FloatPrecision   int
+	MaxDiff          int
+	MaxDepth         int
+	LogErrors        bool
+	LookupUnexported bool
+	IncludeNilSlices bool
+}
+
+var errorType = reflect.TypeOf((*error)(nil)).Elem()
+
+func Equal(actual, expected interface{}, opts ...CompareOptions) []string {
+	actualValue := reflect.ValueOf(actual)
+	expectedValue := reflect.ValueOf(expected)
+	result := &cmpResult{
+		diff: []string{},
+		buff: []string{},
+	}
+	for _, opt := range opts {
+		switch opt.Name {
+		case FloatPrecision:
+			if fv, ok := opt.Value.(int); ok {
+				result.FloatPrecision = fv
+			}
+		case MaxDiff:
+			if fv, ok := opt.Value.(int); ok {
+				result.MaxDiff = fv
+			}
+		case MaxDepth:
+			if fv, ok := opt.Value.(int); ok {
+				result.MaxDepth = fv
+			}
+		case LogErrors:
+			if fv, ok := opt.Value.(bool); ok {
+				result.LogErrors = fv
+			}
+		case LookupUnexported:
+			if fv, ok := opt.Value.(bool); ok {
+				result.LookupUnexported = fv
+			}
+		case IncludeNilSlices:
+			if fv, ok := opt.Value.(bool); ok {
+				result.IncludeNilSlices = fv
+			}
+		}
+	}
+	if result.FloatPrecision <= 0 {
+		result.FloatPrecision = DefaultFloatPrecision
+	}
+	if result.MaxDiff <= 0 {
+		result.MaxDiff = DefaultMaxDiff
+	}
+	result.floatFormat = fmt.Sprintf("%%.%df", result.FloatPrecision)
+	if actual == nil && expected == nil {
+		return nil
+	} else if actual == nil && expected != nil {
+		result.keep("<nil pointer>", expected)
+	} else if actual != nil && expected == nil {
+		result.keep(actual, "<nil pointer>")
+	}
+	if len(result.diff) > 0 {
+		return result.diff
+	}
+	result.equals(actualValue, expectedValue, 0)
+	if len(result.diff) > 0 {
+		return result.diff
+	}
+	return nil
+}
+
+func (r *cmpResult) equals(actual, expected reflect.Value, level int) {
+	if r.MaxDepth > 0 && level > r.MaxDepth {
+		logError(r, errors.New("recurred to MaxDepth"))
+		return
+	}
+
+	if !actual.IsValid() || !expected.IsValid() {
+		if actual.IsValid() && !expected.IsValid() {
+			r.keep(actual.Type(), "<nil pointer>")
+		} else if !actual.IsValid() && expected.IsValid() {
+			r.keep("<nil pointer>", expected.Type())
+		}
+		return
+	}
+
+	actualType := actual.Type()
+	expectedType := expected.Type()
+	if actualType != expectedType {
+		r.keep(actualType, expectedType)
+		logError(r, errors.New("cannot compare types (different reflect.Type)"))
+		return
+	}
+
+	actualKind := actual.Kind()
+	expectedKind := expected.Kind()
+
+	actualDeref := actualKind == reflect.Ptr || actualKind == reflect.Interface
+	expectedDeref := expectedKind == reflect.Ptr || expectedKind == reflect.Interface
+
+	if actualType.Implements(errorType) && expectedType.Implements(errorType) {
+		if (!actualDeref || !actual.IsNil()) && (!expectedDeref || !expected.IsNil()) {
+			actualErrorMethod := actual.MethodByName("Error").Call(nil)[0].String()
+			expectedErrorMethod := expected.MethodByName("Error").Call(nil)[0].String()
+			if actualErrorMethod != expectedErrorMethod {
+				r.keep(actualErrorMethod, expectedErrorMethod)
+				return
+			}
+		}
+	}
+
+	if actualDeref || expectedDeref {
+		if actualDeref {
+			actual = actual.Elem()
+		}
+		if expectedDeref {
+			expected = expected.Elem()
+		}
+		r.equals(actual, expected, level+1)
+		return
+	}
+
+	switch actualKind {
+
+	case reflect.Struct:
+		if actualEqualMethod := actual.MethodByName("Equal"); actualEqualMethod.IsValid() && actualEqualMethod.CanInterface() {
+			funcType := actualEqualMethod.Type()
+			if funcType.NumIn() == 1 && funcType.In(0) == expectedType {
+				equalCallResults := actualEqualMethod.Call([]reflect.Value{expected})
+				if !equalCallResults[0].Bool() {
+					r.keep(actual, expected)
+				}
+				return
+			}
+		}
+		for i := 0; i < actual.NumField(); i++ {
+			if actualType.Field(i).PkgPath != "" && !r.LookupUnexported {
+				continue
+			}
+			if actualType.Field(i).Tag.Get("skipEqual") == "-" {
+				continue
+			}
+
+			r.push(actualType.Field(i).Name)
+			actualField := actual.Field(i)
+			expectedField := expected.Field(i)
+			r.equals(actualField, expectedField, level+1)
+			r.pop()
+			if len(r.diff) >= r.MaxDiff {
+				break
+			}
+		}
+	case reflect.Map:
+		if actual.IsNil() || expected.IsNil() {
+			if actual.IsNil() && !expected.IsNil() {
+				r.keep("<nil map>", expected)
+			} else if !actual.IsNil() && expected.IsNil() {
+				r.keep(actual, "<nil map>")
+			}
+			return
+		}
+		if actual.Pointer() == expected.Pointer() {
+			return
+		}
+
+		for _, key := range actual.MapKeys() {
+			r.push(fmt.Sprintf("map[%s]", key))
+			actualMapIndex := actual.MapIndex(key)
+			expectedMapIndex := expected.MapIndex(key)
+			if expectedMapIndex.IsValid() {
+				r.equals(actualMapIndex, expectedMapIndex, level+1)
+			} else {
+				r.keep(actualMapIndex, "<does not have key>")
+			}
+			r.pop()
+			if len(r.diff) >= r.MaxDiff {
+				return
+			}
+		}
+		for _, key := range expected.MapKeys() {
+			if actualMapIndex := actual.MapIndex(key); actualMapIndex.IsValid() {
+				continue
+			}
+			r.push(fmt.Sprintf("map[%s]", key))
+			r.keep("<does not have key>", expected.MapIndex(key))
+			r.pop()
+			if len(r.diff) >= r.MaxDiff {
+				return
+			}
+		}
+	case reflect.Array:
+		size := actual.Len()
+		for i := 0; i < size; i++ {
+			r.push(fmt.Sprintf("array[%d]", i))
+			r.equals(actual.Index(i), expected.Index(i), level+1)
+			r.pop()
+			if len(r.diff) >= r.MaxDiff {
+				break
+			}
+		}
+	case reflect.Slice:
+		if r.IncludeNilSlices {
+			if actual.IsNil() && expected.Len() != 0 {
+				r.keep("<nil slice>", expected)
+				return
+			} else if actual.Len() != 0 && expected.IsNil() {
+				r.keep(actual, "<nil slice>")
+				return
+			}
+		} else {
+			if actual.IsNil() && !expected.IsNil() {
+				r.keep("<nil slice>", expected)
+				return
+			} else if !actual.IsNil() && expected.IsNil() {
+				r.keep(actual, "<nil slice>")
+				return
+			}
+		}
+		actualSize := actual.Len()
+		expectedSize := expected.Len()
+		if actual.Pointer() == expected.Pointer() && actualSize == expectedSize {
+			return
+		}
+		correctedSize := actualSize
+		if expectedSize > actualSize {
+			correctedSize = expectedSize
+		}
+		for i := 0; i < correctedSize; i++ {
+			r.push(fmt.Sprintf("slice[%d]", i))
+			if i < actualSize && i < expectedSize {
+				r.equals(actual.Index(i), expected.Index(i), level+1)
+			} else if i < actualSize {
+				r.keep(actual.Index(i), "<no value>")
+			} else {
+				r.keep("<no value>", expected.Index(i))
+			}
+			r.pop()
+			if len(r.diff) >= r.MaxDiff {
+				break
+			}
+		}
+	case reflect.Float32, reflect.Float64:
+		actualFloat := fmt.Sprintf(r.floatFormat, actual.Float())
+		expectedFloat := fmt.Sprintf(r.floatFormat, expected.Float())
+		if actualFloat != expectedFloat {
+			r.keep(actual.Float(), expected.Float())
+		}
+	case reflect.Bool:
+		if actual.Bool() != expected.Bool() {
+			r.keep(actual.Bool(), expected.Bool())
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if actual.Int() != expected.Int() {
+			r.keep(actual.Int(), expected.Int())
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if actual.Uint() != expected.Uint() {
+			r.keep(actual.Uint(), expected.Uint())
+		}
+	case reflect.String:
+		if actual.String() != expected.String() {
+			r.keep(actual.String(), expected.String())
+		}
+	default:
+		logError(r, fmt.Errorf("cannot compare the reflect.Kind : unknown condition %v", actualKind))
+	}
+}
+
+func (r *cmpResult) push(name string) {
+	r.buff = append(r.buff, name)
+}
+
+func (r *cmpResult) pop() {
+	if len(r.buff) > 0 {
+		r.buff = r.buff[0 : len(r.buff)-1]
+	}
+}
+
+func (r *cmpResult) keep(actual, expected interface{}) {
+	if len(r.buff) > 0 {
+		varName := strings.Join(r.buff, ".")
+		r.diff = append(r.diff, fmt.Sprintf("%s: %v != %v", varName, actual, expected))
+	} else {
+		r.diff = append(r.diff, fmt.Sprintf("%v != %v", actual, expected))
+	}
+}
+
+func logError(r *cmpResult, err error) {
+	if r.LogErrors {
+		log.Println(err)
+	}
 }

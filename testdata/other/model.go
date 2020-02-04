@@ -1,4 +1,4 @@
-package model_b
+package other
 
 type StructFromAnotherPackage struct {
 	Name string

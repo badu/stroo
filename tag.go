@@ -22,7 +22,7 @@ var (
 	errTagNotExist    = errors.New("tag does not exist")
 )
 
-func ParseTags(tag string) (*Tags, error) {
+func ParseTags(tag string) (Tags, error) {
 	if tag == "" {
 		return nil, nil
 	}
@@ -91,7 +91,7 @@ func ParseTags(tag string) (*Tags, error) {
 		Options: options,
 	})
 
-	return &tags, nil
+	return tags, nil
 }
 
 func (t *Tag) Value() string {

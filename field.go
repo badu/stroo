@@ -18,14 +18,39 @@ type FieldInfo struct {
 	IsEmbedded  bool
 	IsImported  bool
 	IsInterface bool
-	Tags        *Tags
+	IsFunc      bool
+	Tags        Tags
 	Package     string
 	PackagePath string
+	FuncData    *FunctionInfo
+	Prefix      string
 	Comment     *ast.CommentGroup
 	root        *Code // reference to the root document - to allow access to methods
-	Prefix      string
 }
 
+func (f *FieldInfo) Clone(newName string) FieldInfo {
+	return FieldInfo{
+		Name:        newName,
+		Kind:        f.Kind,
+		IsBasic:     f.IsBasic,
+		IsPointer:   f.IsPointer,
+		IsStruct:    f.IsStruct,
+		IsArray:     f.IsArray,
+		IsMap:       f.IsMap,
+		IsChan:      f.IsChan,
+		IsExported:  f.IsExported,
+		IsEmbedded:  f.IsEmbedded,
+		IsImported:  f.IsImported,
+		IsInterface: f.IsInterface,
+		IsFunc:      f.IsFunc,
+		Tags:        f.Tags,
+		Package:     f.Package,
+		PackagePath: f.PackagePath,
+		FuncData:    f.FuncData,
+		Comment:     f.Comment,
+		Prefix:      f.Prefix,
+	}
+}
 func (f *FieldInfo) SetPrefix(prefix string) error {
 	f.Prefix = prefix
 	return nil
@@ -100,7 +125,7 @@ func (f *FieldInfo) IsInt() bool {
 	return false
 }
 
-type Fields []*FieldInfo
+type Fields []FieldInfo
 
 func (f Fields) HasFieldKind(kind string) bool {
 	for _, field := range f {

@@ -3,7 +3,6 @@ package stroo
 import (
 	"bytes"
 	"fmt"
-	"github.com/badu/stroo/dbg_prn"
 	"go/ast"
 	"go/format"
 	"go/token"
@@ -15,9 +14,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -118,6 +120,7 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 	}
 	result := &PackageInfo{
 		Name:       pass.Pkg.Name(),
+		Path:       pass.Pkg.Path(),
 		PrintDebug: c.DebugPrint,
 	}
 	inspResult, ok := pass.ResultOf[c.Inspector].(*inspector.Inspector)
@@ -126,53 +129,100 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 	}
 	result.LoadImports(pass.Pkg.Imports())
 	result.TypesInfo = pass.TypesInfo // exposed just in case someone wants to get wild
+	log.Printf("Package info: %q path %q", pass.Pkg.Name(), pass.Pkg.Path())
+	var discoveredFuncs Methods
+
 	inspResult.Preorder(nodeFilter, func(node ast.Node) {
 		if err != nil {
+			log.Printf("[ERROR] : %v", err)
 			return // we have error for a previous step
 		}
 		switch nodeType := node.(type) {
 		case *ast.FuncDecl:
-			if infoErr := result.ReadFunctionInfo(nodeType); infoErr != nil {
-				err = infoErr
+			if fnInfo, infoErr := readFn(nodeType); infoErr == nil {
+				fnInfo.Package = pass.Pkg.Name()
+				fnInfo.PackagePath = pass.Pkg.Path()
+				discoveredFuncs = append(discoveredFuncs, *fnInfo)
 			}
 		case *ast.GenDecl:
 			switch nodeType.Tok {
 			case token.TYPE:
 				for _, spec := range nodeType.Specs {
 					typeSpec := spec.(*ast.TypeSpec)
+					if typeSpec.Name == nil {
+						log.Fatalf("type spec has name nil : %#v", typeSpec)
+					}
 					switch unknownType := typeSpec.Type.(type) {
 					case *ast.InterfaceType:
 						// e.g. `type Intf interface{}`
-						if infoErr := result.ReadInterfaceInfo(spec, nodeType.Doc); infoErr != nil {
-							err = infoErr
+						typeInfo, infoErr := readType(pass.Pkg, typeSpec, nodeType.Doc)
+						if infoErr == nil {
+							result.Types = append(result.Types, typeInfo)
+						} else {
+							log.Printf("error reading interface : %v", infoErr)
 						}
 					case *ast.ArrayType:
 						// e.g. `type Array []string`
-						if infoErr := result.ReadArrayInfo(spec.(*ast.TypeSpec), nodeType.Doc); infoErr != nil {
-							err = infoErr
+						typeInfo, infoErr := readType(pass.Pkg, typeSpec, nodeType.Doc)
+						if infoErr == nil {
+							result.Types = append(result.Types, typeInfo)
+						} else {
+							log.Printf("error reading array : %v", infoErr)
 						}
-						// e.g. `type Stru struct {}`
 					case *ast.StructType:
-						if infoErr := result.ReadStructInfo(spec.(*ast.TypeSpec), nodeType.Doc); infoErr != nil {
-							err = infoErr
+						// e.g. `type Stru struct {}`
+						typeInfo, infoErr := readType(pass.Pkg, typeSpec, nodeType.Doc)
+						if infoErr == nil {
+							fixFieldsInfo(result.TypesInfo, typeInfo)
+							result.Types = append(result.Types, typeInfo)
+						} else {
+							log.Printf("error reading struct : %v", infoErr)
 						}
 					case *ast.Ident:
 						// e.g. : `type String string`
-						if infoErr := result.DirectIdent(unknownType, nodeType.Doc); infoErr != nil {
-							err = fmt.Errorf("error  : %v", infoErr)
+						fieldInfo, infoErr := readIdent(unknownType, nodeType.Doc)
+						if infoErr == nil {
+							typeInfo := &TypeInfo{}
+							typeInfo.Package = pass.Pkg.Name()
+							typeInfo.PackagePath = pass.Pkg.Path()
+							typeInfo.Kind = fieldInfo.Kind
+							typeInfo.Name = typeSpec.Name.Name
+							typeInfo.IsAlias = true
+							result.Types = append(result.Types, typeInfo)
+						} else {
+							log.Printf("error reading ident : %v", infoErr)
 						}
 					case *ast.SelectorExpr:
 						// e.g. : `type Timer time.Ticker`
-						if infoErr := result.DirectSelector(unknownType, nodeType.Doc); infoErr != nil {
-							err = fmt.Errorf("error : %v", infoErr)
+						fieldInfo, infoErr := readSelector(unknownType, nodeType.Doc)
+						if infoErr == nil {
+							typeInfo := &TypeInfo{}
+							typeInfo.Package = pass.Pkg.Name()
+							typeInfo.PackagePath = pass.Pkg.Path()
+							typeInfo.Kind = fieldInfo.Kind
+							typeInfo.Name = typeSpec.Name.Name
+							typeInfo.IsAlias = true
+							typeInfo.HasImported = fieldInfo.IsImported
+							result.Types = append(result.Types, typeInfo)
+						} else {
+							log.Printf("error reading selector : %v", infoErr)
 						}
 					case *ast.StarExpr:
 						// e.g. : `type Timer *time.Ticker`
-						if infoErr := result.DirectPointer(unknownType, nodeType.Doc); infoErr != nil {
-							err = fmt.Errorf("error : %v", infoErr)
+						fieldInfo, infoErr := readPointer(unknownType, nodeType.Doc)
+						if infoErr == nil {
+							typeInfo := &TypeInfo{}
+							typeInfo.Package = pass.Pkg.Name()
+							typeInfo.PackagePath = pass.Pkg.Path()
+							typeInfo.Kind = fieldInfo.Kind
+							typeInfo.Name = typeSpec.Name.Name
+							typeInfo.IsAlias = true
+							result.Types = append(result.Types, typeInfo)
+						} else {
+							log.Printf("error reading pointer : %v", infoErr)
 						}
 					default:
-						err = fmt.Errorf("have you modified the filter ? Unhandled : %#v\n", unknownType)
+						log.Printf("have you modified the filter ? Unhandled : %#v\n", unknownType)
 					}
 				}
 			case token.VAR, token.CONST:
@@ -187,6 +237,22 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 			}
 		}
 	})
+
+	for _, fn := range discoveredFuncs {
+		if fn.ReceiverType == "" {
+			result.Functions = append(result.Functions, fn)
+			continue
+		}
+
+		// look into structs and attach if found
+		if structInfo := result.Types.Extract(fn.ReceiverType); structInfo != nil {
+			structInfo.MethodList = append(structInfo.MethodList, fn)
+		}
+
+		// ??? function
+		//log.Printf("don't know what to do with function %#v", fn)
+	}
+
 	return result, err
 }
 
@@ -280,6 +346,63 @@ func (c *Command) Generate(analyzer *analysis.Analyzer) error {
 	return nil
 }
 
+func contains(args ...string) bool {
+	who := args[0]
+	for i := 1; i < len(args); i++ {
+		if args[i] == who {
+			return true
+		}
+	}
+	return false
+}
+
+func empty(src string) bool {
+	if src == "" {
+		return true
+	}
+	return false
+}
+
+func lowerInitial(str string) string {
+	for i, v := range str {
+		return string(unicode.ToLower(v)) + str[i+1:]
+	}
+	return ""
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	r, n := utf8.DecodeRuneInString(s)
+	return string(unicode.ToTitle(r)) + s[n:]
+}
+
+func templateGoStr(input string) string {
+	if len(input) > 0 && input[len(input)-1] == '\n' {
+		input = input[0 : len(input)-1]
+	}
+	if strings.Contains(input, "`") {
+		lines := strings.Split(input, "\n")
+		for idx, line := range lines {
+			lines[idx] = strconv.Quote(line + "\n")
+		}
+		return strings.Join(lines, " + \n")
+	}
+	return "`" + input + "`"
+}
+
+func isNil(value interface{}) bool {
+	if value == nil {
+		return true
+	}
+	return false
+}
+
+func SortFields(fields Fields) bool {
+	sort.Sort(fields)
+	return true
+}
 func DefaultFuncMap() template.FuncMap {
 	return template.FuncMap{
 		//"toJsonName":    swag.ToJSONName, // TODO : import all, but make it field functionality
@@ -294,7 +417,8 @@ func DefaultFuncMap() template.FuncMap {
 		"hasPrefix":     strings.HasPrefix,
 		"sort":          SortFields, // allows fields sorting (tested in Stringer)
 		"dump": func(a ...interface{}) string {
-			return dbg_prn.SPrint(a...)
+			return ""
+			//return dbg_prn.SPrint(a...)
 		},
 		"concat": func(a, b string) string {
 			return a + b

@@ -3,51 +3,17 @@ package stroo
 import (
 	"flag"
 	"fmt"
-	"go/ast"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/packages"
 	"log"
 	"os"
 )
 
-func getReceiver(fnDecl *ast.FuncDecl) interface{} {
-	if fnDecl.Recv == nil {
-		return nil
-	}
-	if len(fnDecl.Recv.List[0].Names) == 0 {
-		return nil
-	}
-	return fnDecl.Recv.List[0].Names[0].Name
-}
-
-func getReceiverType(f *ast.FuncDecl) interface{} {
-	if f.Recv == nil {
-		return nil
-	}
-	if len(f.Recv.List[0].Names) == 0 {
-		return nil
-	}
-	switch f.Recv.List[0].Type.(type) {
-	case *ast.Ident:
-		return f.Recv.List[0].Type.(*ast.Ident).Name
-	case *ast.StarExpr:
-		return f.Recv.List[0].Type.(*ast.StarExpr).X.(*ast.Ident).Name
-	}
-	return nil
-}
-
-func stringer(str interface{}) string {
-	if str == nil {
-		return ""
-	}
-	return str.(string)
-}
-
 // loads one package
 func LoadPackage(path string) (*packages.Package, error) {
 	conf := packages.Config{
 		Mode:  packages.NeedName | packages.NeedFiles | packages.NeedImports | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax,
-		Tests: false, //TODO : decide if tests are usefull
+		Tests: false, //TODO : decide if tests are useful
 	}
 
 	// did you knew that you can `loadedPackages, err := packages.Load(config, fmt.Sprintf("file=%s", filename))`
@@ -56,12 +22,19 @@ func LoadPackage(path string) (*packages.Package, error) {
 		log.Printf("error loading package %q : %v\n", path, err)
 		return nil, err
 	}
+	allErrors := ""
+	n := 0
+	packages.Visit(loadedPackage, nil, func(pkg *packages.Package) {
+		for _, err := range pkg.Errors {
+			allErrors += err.Error() + "\n"
+			n++
+		}
+	})
 
-	n := packages.PrintErrors(loadedPackage)
 	switch n {
 	case 0:
 	default:
-		return nil, fmt.Errorf("%d error(s) encountered during load", n)
+		return nil, fmt.Errorf("%d error(s) encountered during load:\n%s", n, allErrors)
 	}
 
 	switch len(loadedPackage) {
@@ -95,4 +68,13 @@ func Print(analyzer *analysis.Analyzer, withRunningFolder bool) string {
 		result += f.Name + "=" + f.Value.String() + " "
 	})
 	return result
+}
+
+func IsBasic(kind string) bool {
+	for _, basic := range []string{"bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64", "complex64", "complex128", "string"} {
+		if basic == kind {
+			return true
+		}
+	}
+	return false
 }

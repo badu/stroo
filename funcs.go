@@ -1,13 +1,18 @@
 package stroo
 
+import "go/ast"
+
 type FunctionInfo struct {
-	Name         string
-	ReturnType   string
-	ReceiverName string
-	ReceiverType string
-	Package      string
-	PackagePath  string
-	IsExported   bool
+	Package          string
+	PackagePath      string
+	Name             string
+	ReceiverName     string // empty for normal functions
+	ReceiverType     string
+	IsMethodReceiver bool
+	IsExported       bool
+	Params           []VarInfo
+	Returns          []VarInfo
+	comment          *ast.CommentGroup
 }
 
-type Methods []*FunctionInfo
+type Methods []FunctionInfo

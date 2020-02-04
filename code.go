@@ -4,72 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"sort"
-	"strconv"
 	"strings"
 	"text/template"
 	"time"
-	"unicode"
-	"unicode/utf8"
 )
-
-func contains(args ...string) bool {
-	who := args[0]
-	for i := 1; i < len(args); i++ {
-		if args[i] == who {
-			return true
-		}
-	}
-	return false
-}
-
-func empty(src string) bool {
-	if src == "" {
-		return true
-	}
-	return false
-}
-
-func lowerInitial(str string) string {
-	for i, v := range str {
-		return string(unicode.ToLower(v)) + str[i+1:]
-	}
-	return ""
-}
-
-func capitalize(s string) string {
-	if s == "" {
-		return s
-	}
-	r, n := utf8.DecodeRuneInString(s)
-	return string(unicode.ToTitle(r)) + s[n:]
-}
-
-func templateGoStr(input string) string {
-	if len(input) > 0 && input[len(input)-1] == '\n' {
-		input = input[0 : len(input)-1]
-	}
-	if strings.Contains(input, "`") {
-		lines := strings.Split(input, "\n")
-		for idx, line := range lines {
-			lines[idx] = strconv.Quote(line + "\n")
-		}
-		return strings.Join(lines, " + \n")
-	}
-	return "`" + input + "`"
-}
-
-func isNil(value interface{}) bool {
-	if value == nil {
-		return true
-	}
-	return false
-}
-
-func SortFields(fields Fields) bool {
-	sort.Sort(fields)
-	return true
-}
 
 type Code struct {
 	CodeConfig
@@ -81,7 +19,12 @@ type Code struct {
 	Main         *TypeInfo              // not nil if we're working with a preselected type
 }
 
-func New(info *PackageInfo, config CodeConfig, template *template.Template, selectedType string) (*Code, error) {
+func New(
+	info *PackageInfo,
+	config CodeConfig,
+	template *template.Template,
+	selectedType string,
+) (*Code, error) {
 	result := &Code{
 		PackageInfo: info,
 		CodeConfig:  config,
@@ -124,12 +67,13 @@ func (c *Code) ResetKeeper()                   { c.keeper = make(map[string]inte
 func (c *Code) StructByKey(key string) (*TypeInfo, error) {
 	result := c.PackageInfo.Types.Extract(key)
 	if result == nil {
+		log.Printf("error looking for %q into types", key)
 		return nil, fmt.Errorf("error looking for %q into types", key)
 	}
 	// set access to root to type and it's fields
 	result.root = c
-	for _, field := range result.Fields {
-		field.root = c
+	for idx := range result.Fields {
+		result.Fields[idx].root = c
 	}
 	return result, nil
 }
@@ -173,44 +117,24 @@ func (c *Code) AddToImports(imp string) string {
 	return ""
 }
 
-// this should be called to allow the generator to know which kind of methods we're generating
-func (c *Code) Declare(name string) error {
-	if name == "" {
-		//log.Printf("error : cannot declare empty template name (e.g.`String` for Stringer interface implementation)")
-		return errors.New("error : cannot declare empty template name (e.g.`String` for Stringer interface implementation)")
-	}
-	c.templateName = name
-	// if Main type was not selected, there is no point in setting it into keeper (dev might intended to work with interfaces)
-	if c.Main != nil {
-		c.keeper[name+c.Main.Name] = "" // set it to empty in case of self reference, so template will exit
-	}
-	return nil
-}
-
-// checker for recurse generated
-func (c *Code) HasNotGenerated(kind string) (bool, error) {
-	if c.templateName == "" {
-		return false, errors.New("you haven't called Declare(methodName) to allow replacing existing generated code")
-	}
-	_, has := c.keeper[c.templateName+kind]
-	return !has, nil
-}
-
 // check if a kind has a method called the same as the template being declared
-func (c *Code) Implements(pckage, kind string) (bool, error) {
+func (c *Code) Implements(fieldInfo FieldInfo) (bool, error) {
 	if c.templateName == "" {
 		return false, errors.New("you haven't called Declare(methodName) to allow replacing existing generated code")
 	}
-	if pckage == "" {
-		nt, err := c.StructByKey(kind)
+	if fieldInfo.Package == "" {
+		nt, err := c.StructByKey(fieldInfo.Kind)
 		if nt == nil || err != nil {
 			log.Printf("lookup error : %v", err)
 			return false, err
 		}
 	} else {
-		log.Printf("we should load : %q and lookup for %q", pckage, kind)
+		if fieldInfo.PackagePath != "" {
+			log.Printf("package path : %q", fieldInfo.PackagePath)
+		}
+		log.Printf("we should load : %q and lookup for %q", fieldInfo.Package, fieldInfo.Kind)
 		// we have to load the package
-		loadedPackage, err := LoadPackage(pckage)
+		loadedPackage, err := LoadPackage(fieldInfo.Package)
 		if err != nil {
 			log.Printf("load error : %v", err)
 			return false, err
@@ -220,16 +144,64 @@ func (c *Code) Implements(pckage, kind string) (bool, error) {
 		if err := command.Analyse(codeBuilder, loadedPackage); err != nil {
 			return false, fmt.Errorf("error analyzing package : %v", err)
 		}
-		log.Printf("package loaded :\n %#v\n", command.Result)
+		//log.Printf("package loaded :\n %#v\n", command.Result)
 	}
-	return true, nil
+	// by default : assume it doens't implements
+	return false, nil
+}
+
+// this should be called to allow the generator to know which kind of methods we're generating
+func (c *Code) Declare(name string) error {
+	if name == "" {
+		//log.Printf("error : cannot declare empty template name (e.g.`String` for Stringer interface implementation)")
+		return errors.New("error : cannot declare empty template name (e.g.`String` for Stringer interface implementation)")
+	}
+	c.templateName = name
+	// if Main type was not selected, there is no point in setting it into keeper (dev might intended to work with interfaces)
+	if c.Main != nil {
+		if c.Main.Kind == "" {
+			return errors.New("error : main kind is empty")
+		}
+		c.keeper[name+c.Main.Kind] = "" // set it to empty in case of self reference, so template will exit
+	}
+	return nil
+}
+
+// checker for recurse generated
+func (c *Code) HasNotGenerated(pkg, kind string) (bool, error) {
+	if c == nil {
+		return false, errors.New("impossible : code was not passed here (.Root ???)")
+	}
+	if c.templateName == "" {
+		log.Printf("you haven't called Declare(methodName) to allow replacing existing generated code")
+		return false, errors.New("you haven't called Declare(methodName) to allow replacing existing generated code")
+	}
+	if pkg == "" {
+		log.Printf("HasNotGenerated : empty package on kind %q", kind)
+		return false, nil
+	}
+	if pkg != c.PackageInfo.Name {
+		log.Printf("HasNotGenerated : different packages %q != %q", pkg, c.PackageInfo.Name)
+		return false, nil
+	}
+	_, has := c.keeper[c.templateName+kind]
+	//log.Printf("HasNotGenerated[imported=%t] %q %q ? %t", pkg, kind, has)
+	return !has, nil
 }
 
 // uses the template name to apply the template recursively
 // it's useful for replacing the code in existing generated files
-func (c *Code) RecurseGenerate(kind string) error {
+func (c *Code) RecurseGenerate(pkg, kind string) error {
 	if c.templateName == "" {
 		return errors.New("you haven't called Declare(methodName) to allow replacing existing generated code")
+	}
+	if pkg == "" {
+		log.Printf("RecurseGenerate : empty package on kind %q", kind)
+		return nil
+	}
+	if pkg != c.PackageInfo.Name {
+		log.Printf("RecurseGenerate : different packages %q != %q", pkg, c.PackageInfo.Name)
+		return nil
 	}
 	entity := c.templateName + kind
 	if c.CodeConfig.DebugPrint {
@@ -242,12 +214,16 @@ func (c *Code) RecurseGenerate(kind string) error {
 		}
 		return errors.New("`" + kind + "` already stored. you are not checking that yourself?")
 	}
-	var buf strings.Builder
 
 	nt, err := c.StructByKey(kind)
 	if nt == nil || err != nil {
 		return err
 	}
+	if nt.HasImported {
+		log.Printf("%q in package %q has imported - don't go this way", kind, pkg)
+		return nil
+	}
+	var buf strings.Builder
 	err = c.tmpl.ExecuteTemplate(&buf, c.templateName, nt)
 	if err != nil {
 		if c.CodeConfig.DebugPrint {

@@ -334,22 +334,15 @@ func strooHandler(command *Command) http.HandlerFunc {
 				return
 			}
 			// convention : by default, the upper most type struct is provided to the code builder
-			var firstType *TypeInfo
+			firstTypeName := ""
 			if len(tempCommand.Result.Types) >= 1 {
-				firstType = tempCommand.Result.Types[0]
+				firstTypeName = tempCommand.Result.Types[0].Kind
 			}
 			// create code
-			cachedResult, err = New(tempCommand.Result, tempCommand.CodeConfig, nil, "")
+			cachedResult, err = New(tempCommand.Result, tempCommand.CodeConfig, nil, firstTypeName)
 			if err != nil {
 				respond(w, MalformedRequest{ErrorMessage: err.Error()})
 				return
-			}
-			if firstType != nil {
-				cachedResult.Main, err = cachedResult.StructByKey(firstType.Name)
-				if err != nil {
-					respond(w, MalformedRequest{ErrorMessage: err.Error()})
-					return
-				}
 			}
 		}
 		// set the template to the result (might have been changed)
@@ -362,6 +355,7 @@ func strooHandler(command *Command) http.HandlerFunc {
 			respond(w, InvalidTemplate, err.Error())
 			return
 		}
+
 		optImports, err := imports.Process(packageName, buf.Bytes(), nil)
 		if err != nil {
 			respond(w, InvalidFormat, err.Error(), buf.String())

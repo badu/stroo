@@ -2,14 +2,9 @@ package stroo
 
 import (
 	"errors"
-	"fmt"
 	"go/ast"
 	"go/types"
 	"log"
-)
-
-var (
-	ErrNotImplemented = "%T found on %q (not implemented)"
 )
 
 type Imports struct {
@@ -18,10 +13,11 @@ type Imports struct {
 }
 type PackageInfo struct {
 	Name       string
-	Vars       Vars
-	Functions  Methods
+	Path       string
 	Types      TypesSlice
+	Functions  Methods
 	Interfaces Interfaces
+	Vars       Vars
 	TypesInfo  *types.Info
 	Imports    []*Imports
 	PrintDebug bool
@@ -36,420 +32,420 @@ func (pkg *PackageInfo) LoadImports(fromImports []*types.Package) {
 	}
 }
 
-// reads array type declaration
-// currently, we accept the following definitions :
-// type T []V - where V is a basic type or a typed struct
-// type T []*V - where V is a basic type or a typed struct
-func (pkg *PackageInfo) ReadArrayInfo(astSpec *ast.TypeSpec, comment *ast.CommentGroup) error {
-	info := TypeInfo{
-		Name:    astSpec.Name.Name,
-		Comment: comment,
-		IsArray: true,
+func readIdent(ident *ast.Ident, comment *ast.CommentGroup) (*FieldInfo, error) {
+	var (
+		result FieldInfo
+		err    error
+	)
+	if comment != nil {
+		// direct call from Preorder
+		result.Comment = comment
 	}
-	obj, found := pkg.TypesInfo.Defs[astSpec.Name]
-	if found {
-		info.Package = obj.Pkg().Name()
-		info.PackagePath = obj.Pkg().Path()
-	} else {
-		return fmt.Errorf("%q not found in TypesInfo.Defs", astSpec.Name)
+	result.Kind = ident.Name
+	if IsBasic(ident.Name) {
+		result.IsBasic = true
 	}
-	// TODO : take comments from both astSpec.Comment.Text(), comment.Text()
-	switch elType := astSpec.Type.(*ast.ArrayType).Elt.(type) {
+	return &result, err
+}
+
+func readPointer(ptr *ast.StarExpr, comment *ast.CommentGroup) (*FieldInfo, error) {
+	var (
+		result FieldInfo
+		err    error
+	)
+	if comment != nil {
+		// direct call from Preorder
+		result.Comment = comment
+	}
+	result.IsPointer = true
+	switch typedSpec := ptr.X.(type) {
 	case *ast.Ident:
-		info.Kind = elType.Name
+		fieldInfo, err := readIdent(typedSpec, nil)
+		if err == nil {
+			result.Kind = fieldInfo.Kind
+			result.IsBasic = fieldInfo.IsBasic
+		}
+	case *ast.SelectorExpr:
+		fieldInfo, err := readSelector(typedSpec, nil)
+		if err == nil {
+			result.Kind = fieldInfo.Kind
+			result.IsBasic = fieldInfo.IsBasic
+			result.IsImported = fieldInfo.IsImported
+			result.Package = fieldInfo.Package
+			result.IsImported = fieldInfo.IsImported
+		}
+	case *ast.ArrayType:
+		elInfo, err := readElemType(typedSpec)
+		if err == nil {
+			result.Kind = elInfo.Kind
+			result.IsPointer = elInfo.IsPointer
+		}
+	case *ast.MapType:
+		result.IsMap = true
+		result.Kind = "map (temporary)"
+	case *ast.ChanType:
+		result.IsChan = true
+		result.Kind = "chan (temporary)"
+	case *ast.StructType:
+		result.Kind = "struct (temporary)"
+	default:
+		log.Printf("UNHANDLED PTR CASE : %T", typedSpec)
+	}
+	return &result, err
+}
+
+func readSelector(sel *ast.SelectorExpr, comment *ast.CommentGroup) (*FieldInfo, error) {
+	var (
+		result FieldInfo
+		err    error
+	)
+	if comment != nil {
+		// direct call from Preorder
+		result.Comment = comment
+	}
+	result.IsImported = true
+	result.Kind = sel.Sel.Name
+	if sel.Sel != nil {
+		idt, ok := sel.X.(*ast.Ident)
+		if ok {
+			fieldInfo, err := readIdent(idt, nil)
+			if err == nil {
+				result.Kind = fieldInfo.Kind + "." + result.Kind
+				result.IsBasic = fieldInfo.IsBasic
+			}
+		} else {
+			log.Printf("BAD SELECTOR [NOT IDENT] : %#v", sel)
+		}
+	} else {
+		log.Printf("BAD SELECTOR : %#v", sel)
+	}
+	return &result, err
+}
+
+func readField(pkg *types.Package, field *ast.Field, comment *ast.CommentGroup) ([]FieldInfo, error) {
+	var (
+		oneResult  FieldInfo
+		err        error
+		fieldNames []string
+	)
+
+	oneResult.Comment = comment
+	oneResult.Package = pkg.Name()
+	oneResult.PackagePath = pkg.Path()
+	switch len(field.Names) {
+	case 0:
+		// embedded field
+		oneResult.IsEmbedded = true
+	case 1:
+		oneResult.IsExported = field.Names[0].IsExported()
+		oneResult.Name = field.Names[0].Name
+	default:
+		// processedField declaration is like `Name, Phone string`
+		oneResult.IsExported = field.Names[0].IsExported()
+		oneResult.Name = field.Names[0].Name
+		for idx, fieldName := range field.Names {
+			if idx > 0 {
+				fieldNames = append(fieldNames, fieldName.Name)
+			}
+		}
+	}
+
+	switch typedSpec := field.Type.(type) {
+	case *ast.Ident:
+		fieldInfo, err := readIdent(typedSpec, nil)
+		if err == nil {
+			oneResult.Kind = fieldInfo.Kind
+			oneResult.IsBasic = fieldInfo.IsBasic
+		}
 	case *ast.StarExpr:
-		info.IsPointer = true
-		switch ptrType := elType.X.(type) {
-		case *ast.Ident:
-			info.Kind = ptrType.Name
-		case *ast.SelectorExpr:
-			if ident, ok := ptrType.X.(*ast.Ident); ok {
-				info.Kind = ident.Name + "." + ptrType.Sel.Name
-			}
-		default:
-			return fmt.Errorf(ErrNotImplemented, elType, info.Name)
+		fieldInfo, err := readPointer(typedSpec, nil)
+		if err == nil {
+			oneResult.IsPointer = fieldInfo.IsPointer
+			oneResult.Kind = fieldInfo.Kind
+			oneResult.IsBasic = fieldInfo.IsBasic
+			oneResult.IsImported = fieldInfo.IsImported
+			oneResult.Package = fieldInfo.Package
 		}
 	case *ast.SelectorExpr:
-		// fields from other packages
-		if ident, ok := elType.X.(*ast.Ident); ok {
-			info.Kind = ident.Name + "." + elType.Sel.Name
-			//TODO : if dotindex := strings.LastIndex(nameStr, "."); dotindex >= 0 {
+		fieldInfo, err := readSelector(typedSpec, nil)
+		if err == nil {
+			oneResult.IsImported = fieldInfo.IsImported
+			oneResult.Kind = fieldInfo.Kind
+			oneResult.Package = fieldInfo.Package
+			oneResult.IsBasic = fieldInfo.IsBasic
+			oneResult.IsImported = fieldInfo.IsImported
 		}
+	case *ast.MapType:
+		oneResult.IsMap = true
+		oneResult.Kind = "map (temporary)"
+		log.Printf("%q is map", oneResult.Name)
+	case *ast.ChanType:
+		oneResult.IsChan = true
+		oneResult.Kind = "chan (temporary)"
+		// TODO : read chan kind
+		//log.Printf("%q is chan", oneResult.Name)
+	case *ast.ArrayType:
+		oneResult.IsArray = true
+		elemTypeInfo, err := readElemType(typedSpec)
+		if err == nil {
+			oneResult.IsBasic = IsBasic(elemTypeInfo.Kind)
+			oneResult.IsPointer = elemTypeInfo.IsPointer
+			oneResult.Kind = elemTypeInfo.Kind
+		}
+		//log.Printf("%q is array : %#v", oneResult.Name, typedSpec)
+	case *ast.FuncType:
+		oneResult.IsFunc = true
+		//log.Printf("%q %s is func", oneResult.Name, oneResult.Kind)
+		params, returns, err := readFunc(typedSpec)
+		if err == nil {
+			oneResult.FuncData = &FunctionInfo{Params: params, Returns: returns}
+		}
+
+	case *ast.InterfaceType:
+		oneResult.IsInterface = true
+		oneResult.Kind = "interface"
 	default:
-		return fmt.Errorf(ErrNotImplemented, elType, info.Name)
+		log.Printf("UNHANDLED FIELD CASE : %T", typedSpec)
 	}
-	if pkg.PrintDebug {
-		log.Printf("ReadArrayInfo Traversing array %q of type %q==", info.Name, info.Kind)
+
+	if field.Tag != nil {
+		oneResult.Tags, err = ParseTags(field.Tag.Value)
 	}
-	pkg.Types = append(pkg.Types, &info)
-	return nil
+
+	result := make([]FieldInfo, 0)
+	result = append(result, oneResult)
+	if len(fieldNames) > 0 {
+		for _, name := range fieldNames {
+			result = append(result, oneResult.Clone(name))
+		}
+	}
+
+	return result, err
 }
 
-func (pkg *PackageInfo) FieldLookupAndFill(named string, info *FieldInfo) (types.Object, error) {
-	for key, value := range pkg.TypesInfo.Defs {
-		if key.Name == named {
-			info.Kind = value.Name()
-			switch underType := value.Type().Underlying().(type) {
-			case *types.Pointer:
-				info.IsPointer = true
-				switch underPtr := underType.Elem().Underlying().(type) {
-				default:
-					return nil, fmt.Errorf("pointer lookup : don't know what to do with : %#v", underPtr)
-				case *types.Struct:
-					info.IsStruct = true
-				case *types.Slice:
-					info.IsArray = true
-				case *types.Interface:
-					info.IsInterface = true
+func fixFieldsInfo(defs *types.Info, forType *TypeInfo) {
+	for idx := range forType.Fields {
+		for key, value := range defs.Defs {
+			if key.Name == forType.Fields[idx].Kind {
+				if forType.Fields[idx].Package == "" {
+					// must belong to some package
+					//forType.Fields[idx].Package = value.Pkg().Name()
 				}
-			case *types.Struct:
-				info.IsStruct = true
-			case *types.Slice:
-				info.IsArray = true
-			case *types.Interface:
-				info.IsInterface = true
-			default:
-				return nil, fmt.Errorf("lookup unknown %q -> exported %t; type %#v; package= %v; id=%q", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id())
-			}
-			return value, nil
-		}
-	}
-	return nil, fmt.Errorf("lookup for %q failed", named)
-}
-
-func (pkg *PackageInfo) DirectIdent(ident *ast.Ident, comment *ast.CommentGroup) error {
-	newInfo := TypeInfo{Comment: comment}
-	found := false
-	switch ident.Name {
-	case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64", "complex64", "complex128", "string":
-		newInfo.Kind = ident.Name
-		newInfo.Name = ident.Name
-		found = true
-	default:
-		for key, value := range pkg.TypesInfo.Defs {
-			if key.Name == ident.Name {
-				found = true
-				newInfo.Name = value.Name()
-				switch underType := value.Type().Underlying().(type) {
+				underlyingValue := value.Type().Underlying()
+				//info.Kind = value.Name()
+				switch underType := underlyingValue.(type) {
 				case *types.Pointer:
-					newInfo.IsPointer = true
-					switch underPtr := underType.Elem().Underlying().(type) {
+					underlyingPointer := underType.Elem().Underlying()
+					forType.Fields[idx].IsPointer = true
+					//info.IsPointer = true
+					switch underPtr := underlyingPointer.(type) {
 					default:
-						return fmt.Errorf("pointer lookup : don't know what to do with : %#v", underPtr)
+						log.Printf("pointer lookup : don't know what to do with :%T %#v", underPtr, underPtr)
+					case *types.Struct:
+						forType.Fields[idx].IsStruct = true
 					case *types.Slice:
-						newInfo.IsArray = true
+						forType.Fields[idx].IsArray = true
+					case *types.Interface:
+						forType.Fields[idx].IsInterface = true
 					}
+				case *types.Struct:
+					forType.Fields[idx].IsStruct = true
 				case *types.Slice:
-					newInfo.IsArray = true
+					forType.Fields[idx].IsArray = true
+				case *types.Interface:
+					forType.Fields[idx].IsInterface = true
+				case *types.Basic:
+					// TODO :
+				case *types.Signature:
+					// TODO :
 				default:
-					return fmt.Errorf("lookup unknown %q -> exported %t; type %#v; package= %v; id=%q", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id())
+					log.Printf("lookup unknown %q -> exported %t; type %#v; package= %v; id=%q\n%T", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id(), underType)
 				}
-				if pkg.PrintDebug {
-					log.Printf("Self adding : %#v", newInfo)
-				}
-				break
 			}
 		}
 	}
-
-	if found {
-		pkg.Types = append(pkg.Types, &newInfo)
-	}
-	if pkg.PrintDebug {
-		log.Printf("%q not found in TypesInfo.Defs", ident.Name)
-	}
-	return nil
 }
 
-func (pkg *PackageInfo) DirectSelector(sel *ast.SelectorExpr, comment *ast.CommentGroup) error {
-	if ident, ok := sel.X.(*ast.Ident); ok {
-		newInfo := TypeInfo{Comment: comment}
-		newInfo.Package = ident.Name
-		newInfo.Kind = sel.Sel.Name
-		newInfo.Name = sel.Sel.Name
-		pkg.Types = append(pkg.Types, &newInfo)
+func readType(pkg *types.Package, astSpec *ast.TypeSpec, comment *ast.CommentGroup) (*TypeInfo, error) {
+	var (
+		result TypeInfo
+		err    error
+	)
+	result.comment = comment
+	if astSpec.Name == nil {
+		log.Printf("possible error : astSpec.Name is nil on %#v", astSpec)
+		return nil, errors.New("type name is nil")
 	}
-	return nil
+	result.Package = pkg.Name()
+	result.PackagePath = pkg.Path()
+	result.Kind = astSpec.Name.Name
+	switch typedSpec := astSpec.Type.(type) {
+	case *ast.StructType:
+		result.Name = result.Kind
+		//log.Printf("Traversing struct kind : %q", result.Kind)
+		for _, field := range typedSpec.Fields.List {
+			fieldsInfo, err := readField(pkg, field, field.Comment)
+			if err == nil {
+				result.Fields = append(result.Fields, fieldsInfo...)
+			}
+		}
+	case *ast.ArrayType:
+		//log.Printf("Traversing array : %q", result.Kind)
+		result.Name = astSpec.Name.Name
+		result.IsArray = true
+		elInfo, err := readElemType(typedSpec)
+		if err == nil {
+			result.Kind = elInfo.Kind
+			result.IsPointer = elInfo.IsPointer
+		}
+	case *ast.InterfaceType:
+		log.Printf("Traversing interface : %#v\n%#v", astSpec, typedSpec)
+	default:
+		log.Printf("UNHANDLED TYPE CASE : %T", typedSpec)
+	}
+	return &result, err
 }
 
-func (pkg *PackageInfo) DirectPointer(ptr *ast.StarExpr, comment *ast.CommentGroup) error {
-	newInfo := TypeInfo{Comment: comment}
-	newInfo.IsPointer = true
-	switch ptrType := ptr.X.(type) {
+func readElemType(arr *ast.ArrayType) (*TypeInfo, error) {
+	var (
+		result TypeInfo
+		err    error
+	)
+	switch elType := arr.Elt.(type) {
 	case *ast.Ident:
-		found := false
-		switch ptrType.Name {
-		case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64", "complex64", "complex128", "string":
-			newInfo.Kind = ptrType.Name
-			newInfo.Name = ptrType.Name
-			found = true
-		default:
-			for key, value := range pkg.TypesInfo.Defs {
-				if key.Name == ptrType.Name {
-					found = true
-					newInfo.Name = value.Name()
-					switch underType := value.Type().Underlying().(type) {
-					case *types.Pointer:
-						newInfo.IsPointer = true
-						switch underPtr := underType.Elem().Underlying().(type) {
-						default:
-							return fmt.Errorf("pointer lookup : don't know what to do with : %#v", underPtr)
-						case *types.Slice:
-							newInfo.IsArray = true
-						}
-					case *types.Slice:
-						newInfo.IsArray = true
-					default:
-						return fmt.Errorf("lookup unknown %q -> exported %t; type %#v; package= %v; id=%q", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id())
-					}
-					if pkg.PrintDebug {
-						log.Printf("Self adding : %#v", newInfo)
-					}
-					break
-				}
-			}
+		fieldInfo, err := readIdent(elType, nil)
+		if err == nil {
+			result.Kind = fieldInfo.Kind
 		}
-		if found {
-			pkg.Types = append(pkg.Types, &newInfo)
+	case *ast.StarExpr:
+		fieldInfo, err := readPointer(elType, nil)
+		if err == nil {
+			result.Kind = fieldInfo.Kind
+			result.IsPointer = fieldInfo.IsPointer
 		}
 	case *ast.SelectorExpr:
-		// fields from other packages
-		if ident, ok := ptrType.X.(*ast.Ident); ok {
-			newInfo.Package = ident.Name
-			newInfo.Kind = ptrType.Sel.Name
-			newInfo.Name = ptrType.Sel.Name
-			pkg.Types = append(pkg.Types, &newInfo)
+		fieldInfo, err := readSelector(elType, nil)
+		if err == nil {
+			result.Kind = fieldInfo.Kind
+			result.Package = fieldInfo.Package         // TODO : check
+			result.PackagePath = fieldInfo.PackagePath // TODO : check
+			result.IsPointer = fieldInfo.IsPointer     // TODO : check
+			result.HasImported = fieldInfo.IsImported  // TODO : check
 		}
+	case *ast.ArrayType:
+		elInfo, err := readElemType(elType)
+		if err == nil {
+			result.Kind = elInfo.Kind
+			result.IsPointer = elInfo.IsPointer
+		}
+	case *ast.MapType:
+		result.Kind = "map (temporary)"
+	case *ast.StructType:
+		result.Kind = "struct (temporary)"
+	case *ast.ChanType:
+		result.Kind = "chan (temporary)"
 	default:
-		log.Printf("unknown pointer type %T", ptrType)
+		log.Printf("UNHANDLED ELEM CASE : %T", elType)
 	}
-	return nil
+	return &result, err
 }
 
-func (pkg *PackageInfo) ReadIdent(ident *ast.Ident, info *FieldInfo, comment *ast.CommentGroup) error {
-	switch ident.Name {
-	case "bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64", "complex64", "complex128", "string":
-		info.IsBasic = true
-		info.Kind = ident.Name
-	case "chan":
-		return fmt.Errorf("chan not implemented")
-	default:
-		if info.IsImported {
-			return nil
-		}
-		info.Kind = ident.Name
-		obj, err := pkg.FieldLookupAndFill(ident.Name, info)
-		if obj == nil {
-			log.Printf("[error] in %q while processing ident : %v", info.Name, err)
-			return fmt.Errorf("%q not found while processing ident %#v", ident.Name, info)
-		} else if err != nil {
-			log.Printf("[error] in %q while processing ident not found : %v", info.Name, err)
-			return fmt.Errorf("%q processing ident with error : %v", ident.Name, err)
-		}
+func buildVarFromExpr(field *ast.Field) VarInfo {
+	var param VarInfo
+	if len(field.Names) == 1 {
+		param.Name = field.Names[0].Name //  it has a name
 	}
-
-	if pkg.PrintDebug {
-		if !info.IsBasic {
-			log.Printf("[%q] kind = %q pointer = %t basic = %t struct = %t array = %t package %q", info.Name, info.Kind, info.IsPointer, info.IsBasic, info.IsStruct, info.IsArray, info.Package)
-		}
-	}
-	return nil
-}
-
-func (pkg *PackageInfo) ReadSelector(sel *ast.SelectorExpr, info *FieldInfo, comment *ast.CommentGroup) error {
-	info.IsImported = true
-	if ident, ok := sel.X.(*ast.Ident); ok {
-		info.Package = ident.Name
-		info.Kind = sel.Sel.Name
-		if pkg.PrintDebug {
-			log.Printf("SelectorExpr : %q.%q", info.Package, info.Kind)
-		}
-		if err := pkg.ReadIdent(ident, info, comment); err != nil {
-			log.Printf("[error] in reading selector %q while reading ident : %v", info.Name, err)
-			return fmt.Errorf("error reading selector : %v", err)
-		}
-	} else {
-		log.Printf("Possible error in %q : *ast.SelectorExpr.X is not *ast.Ident : %#v", info.Name, sel)
-	}
-	return nil
-}
-
-func (pkg *PackageInfo) ReadPointer(ptr *ast.StarExpr, info *FieldInfo, comment *ast.CommentGroup) error {
-	if pkg.PrintDebug && info.Name != "" {
-		log.Printf("%q is pointer", info.Name)
-	}
-	info.IsPointer = true
-	switch ptrType := ptr.X.(type) {
+	switch paramType := field.Type.(type) {
 	case *ast.Ident:
-		if err := pkg.ReadIdent(ptrType, info, comment); err != nil {
-			log.Printf("[error] in reading pointer %q while reading ident : %v", info.Name, err)
-			return fmt.Errorf("error reading selector : %v", err)
+		fieldInfo, err := readIdent(paramType, nil)
+		if err == nil {
+			param.Type = fieldInfo.Kind
+		}
+	case *ast.StarExpr:
+		fieldInfo, err := readPointer(paramType, nil)
+		if err == nil {
+			param.Type = fieldInfo.Kind
 		}
 	case *ast.SelectorExpr:
-		// fields from other packages
-		if err := pkg.ReadSelector(ptrType, info, comment); err != nil {
-			log.Printf("[error] in reading pointer %q while reading selector : %v", info.Name, err)
-			return fmt.Errorf("error reading selector : %v", err)
+		fieldInfo, err := readSelector(paramType, nil)
+		if err == nil {
+			param.Type = fieldInfo.Kind // TODO : check how it looks
 		}
+	case *ast.ArrayType:
+		typeInfo, err := readElemType(paramType)
+		if err == nil {
+			param.Type = "[]" + typeInfo.Kind
+		}
+	case *ast.InterfaceType:
+		param.Type = "interface"
 	default:
-		log.Printf("unknown pointer %q of type %T", info.Kind, ptrType)
-		return fmt.Errorf(ErrNotImplemented, ptr, info.Name)
+		log.Printf("UNHANDLED PARAM/RETURN CASE : %T", paramType)
 	}
-	return nil
+	return param
 }
 
-// get struct information from structure type declaration
-func (pkg *PackageInfo) ReadStructInfo(astSpec *ast.TypeSpec, comment *ast.CommentGroup) error {
-	info := TypeInfo{
-		Name:    astSpec.Name.Name,
-		Kind:    astSpec.Name.Name,
-		Comment: comment,
-	}
-	if pkg.PrintDebug {
-		log.Printf("%q: Traversing struct ", astSpec.Name.Name)
-	}
-	obj, found := pkg.TypesInfo.Defs[astSpec.Name]
-	if found {
-		info.Package = obj.Pkg().Name()
-		info.PackagePath = obj.Pkg().Path()
-	} else {
-		log.Printf("%q not found in TypesInfo.Defs", astSpec.Name)
-	}
-	for _, field := range astSpec.Type.(*ast.StructType).Fields.List {
-		if len(field.Names) == 0 {
-			// embedded field
-			// TODO : note that we need a checker `types.Check` to establish that the field is exported. Forcing exported default
-			embeddedField := FieldInfo{IsEmbedded: true, IsExported: true}
-			switch fieldType := field.Type.(type) {
-			case *ast.StarExpr:
-				if err := pkg.ReadPointer(fieldType, &embeddedField, nil); err != nil {
-					log.Printf("[error] in %q while reading embed pointer : %v", info.Name, err)
-					return err
-				}
-			case *ast.Ident:
-				if err := pkg.ReadIdent(fieldType, &embeddedField, nil); err != nil {
-					log.Printf("[error] in %q while reading embed ident : %v", info.Name, err)
-					return fmt.Errorf("error reading ident : %v", err)
-				}
-			case *ast.SelectorExpr:
-				// fields from other packages
-				if err := pkg.ReadSelector(fieldType, &embeddedField, nil); err != nil {
-					log.Printf("[error] in %q while reading embed selector : %v", info.Name, err)
-					return fmt.Errorf("error reading selector : %v", err)
-				}
-			default:
-				log.Printf("[error] in %q unknown embedded field %q of type %T", info.Name, embeddedField.Kind, fieldType)
-				// not allowed
-				return fmt.Errorf(ErrNotImplemented, fieldType, info.Name)
+func readFunc(spec *ast.FuncType) ([]VarInfo, []VarInfo, error) {
+	var (
+		err error
+	)
+	var params []VarInfo
+	if spec.Params != nil {
+		for _, p := range spec.Params.List {
+			param := buildVarFromExpr(p)
+			if param.Type == "" && param.Name == "" {
+				log.Printf("noname/notype found while inspecting %#v", spec)
+				continue
 			}
-			embeddedField.Name = embeddedField.Kind
-			if pkg.PrintDebug {
-				log.Printf("%q: embedded field %q", info.Name, embeddedField.Name)
-			}
-			info.Fields = append(info.Fields, &embeddedField)
-			continue
+			params = append(params, param) // TODO : did you knew that you can tag a function ? type s struct { f func(interface{}, uintptr) `tag:""` } ??
 		}
-		newField := FieldInfo{Name: field.Names[0].Name, IsExported: field.Names[0].IsExported(), Comment: field.Comment}
-		if pkg.PrintDebug {
-			log.Printf("%q: inspecting %q %T", info.Name, newField.Name, field.Type)
-		}
-		switch fieldType := field.Type.(type) {
-		case *ast.StarExpr:
-			if err := pkg.ReadPointer(fieldType, &newField, nil); err != nil {
-				log.Printf("[error] in %q while reading pointer : %v", info.Name, err)
-				return err
-			}
-		case *ast.Ident:
-			if err := pkg.ReadIdent(fieldType, &newField, nil); err != nil {
-				log.Printf("[error] in %q while reading ident : %v", info.Name, err)
-				return fmt.Errorf("error reading selector : %v", err)
-			}
-		case *ast.MapType:
-			newField.IsMap = true
-		case *ast.ChanType:
-			newField.IsChan = true
-		case *ast.ArrayType:
-			newField.IsArray = true
-		case *ast.SelectorExpr:
-			// fields from other packages
-			if err := pkg.ReadSelector(fieldType, &newField, nil); err != nil {
-				log.Printf("[error] in %q while reading selector : %v", info.Name, err)
-				return fmt.Errorf("error reading selector : %v", err)
-			}
-		case *ast.FuncType:
-			log.Printf("[TODO] read func %q on field %q of type %T : %#v", info.Name, newField.Kind, fieldType, fieldType)
-		case *ast.InterfaceType:
-			log.Printf("[TODO] read interface %q on field %q of type %T : %#v", info.Name, newField.Kind, fieldType, fieldType)
-			// ignore ??
-		default:
-			log.Printf("[error] in %q unknown field %q of type %T", info.Name, newField.Kind, fieldType)
-			return fmt.Errorf(ErrNotImplemented, fieldType, info.Name)
-		}
-
-		if field.Tag != nil {
-			var err error
-			newField.Tags, err = ParseTags(field.Tag.Value)
-			if err != nil {
-				log.Printf("[error] in %q while parsing tags : %v", info.Name, err)
-				return fmt.Errorf("error parsing tags : %v of field named %q input = %s", err.Error(), newField.Name, field.Tag.Value)
-			}
-		}
-		if pkg.PrintDebug {
-			log.Printf("%q: adding field %q", newField.Name, info.Name)
-		}
-		info.Fields = append(info.Fields, &newField)
 	}
-	if pkg.PrintDebug {
-		log.Printf("%q: adding to Types", info.Name)
+	var returns []VarInfo
+	if spec.Results != nil {
+		for _, r := range spec.Results.List {
+			param := buildVarFromExpr(r)
+			if param.Type == "" && param.Name == "" {
+				log.Printf("noname/notype found while inspecting %#v", spec)
+				continue
+			}
+			returns = append(returns, param)
+		}
 	}
-	pkg.Types = append(pkg.Types, &info)
-	return nil
+	return params, returns, err
 }
 
 // get function information from the function object
-func (pkg *PackageInfo) ReadFunctionInfo(spec *ast.FuncDecl) error {
+func readFn(spec *ast.FuncDecl) (*FunctionInfo, error) {
+	if spec.Name == nil {
+		return nil, errors.New("spec name is nil while reading function")
+	}
 	info := FunctionInfo{
-		Name:         spec.Name.Name,
-		ReceiverName: stringer(getReceiver(spec)),
-		ReceiverType: stringer(getReceiverType(spec)),
-		IsExported:   spec.Name.IsExported(),
+		Name:       spec.Name.Name,
+		IsExported: spec.Name.IsExported(),
+		comment:    spec.Doc,
 	}
-	obj := pkg.TypesInfo.Defs[spec.Name]
-	if obj != nil {
-		typ := obj.(*types.Func)
-		info.Package = typ.Pkg().Name()
-		info.PackagePath = typ.Pkg().Path()
-		info.ReturnType = typ.Type().String()
-	} else if pkg.PrintDebug {
-		return errors.New("ReadFunctionInfo : obj is nil")
-	}
-	pkg.Functions = append(pkg.Functions, &info)
-	return nil
-}
-
-// get interface information from interface type declaration
-func (pkg *PackageInfo) ReadInterfaceInfo(spec ast.Spec, comment *ast.CommentGroup) error {
-	//var list []InterfaceInfo
-	astSpec := spec.(*ast.TypeSpec)
-	var methods []string
-	for _, m := range astSpec.Type.(*ast.InterfaceType).Methods.List {
-		if len(m.Names) == 0 {
-			continue
+	if spec.Recv != nil {
+		if len(spec.Recv.List) > 0 {
+			stList := spec.Recv.List[0]
+			if len(stList.Names) > 0 {
+				info.ReceiverName = stList.Names[0].Name
+			}
+			switch recType := stList.Type.(type) {
+			case *ast.Ident:
+				info.ReceiverType = recType.Name
+			case *ast.StarExpr:
+				info.IsMethodReceiver = true
+				info.ReceiverType = recType.X.(*ast.Ident).Name
+			default:
+				log.Printf("don't know what to do with receiver : %T %#v", recType, recType)
+			}
 		}
-		methods = append(methods, m.Names[0].Name)
 	}
-	info := InterfaceInfo{
-		Name:    astSpec.Name.Name,
-		Methods: methods,
-		Comment: comment,
+	params, returns, err := readFunc(spec.Type)
+	if err == nil {
+		info.Params = params
+		info.Returns = returns
 	}
-	obj := pkg.TypesInfo.Defs[astSpec.Name]
-	if obj != nil {
-		info.Package = obj.Pkg().Name()
-		info.PackagePath = obj.Pkg().Path()
-	}
-	pkg.Interfaces = append(pkg.Interfaces, &info)
-	return nil
+	return &info, nil
 }
 
 func (pkg *PackageInfo) ReadVariablesInfo(spec ast.Spec, valueSpec *ast.ValueSpec) error {

@@ -2,282 +2,196 @@ package stroo_test
 
 import (
 	"fmt"
-	"github.com/badu/stroo/dbg_prn"
+	. "github.com/badu/stroo"
+	"github.com/badu/stroo/halp"
 	"go/ast"
-	"go/parser"
-	"go/token"
 	"go/types"
 	"golang.org/x/tools/go/packages"
 	"io/ioutil"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
-
-	. "github.com/badu/stroo"
 )
 
 type testCase struct {
 	name       string
-	input      string
 	outputName string
 	output     interface{}
 }
 
+const (
+	testPackage     = "testdata"
+	testPackagePath = "github.com/badu/stroo/testdata"
+)
+
 var cases = []testCase{
 	{
-		name:       "p",
-		input:      `package p; type T0 []int;`,
+		name:       "slice of int",
 		outputName: "T0",
-		output:     &TypeInfo{Name: "T0", Kind: "int", IsArray: true, Package: "p", PackagePath: "p"},
+		output:     &TypeInfo{Package: testPackage, PackagePath: testPackagePath, Name: "T0", Kind: "int", IsArray: true},
 	}, // 0
 	{
-		name:       "p",
-		input:      `package p; type T1 []*int;`,
+		name:       "p1",
 		outputName: "T1",
-		output:     &TypeInfo{Name: "T1", Kind: "int", IsPointer: true, IsArray: true, Package: "p", PackagePath: "p"},
+		output:     &TypeInfo{Package: testPackage, PackagePath: testPackagePath, Name: "T1", Kind: "int", IsPointer: true, IsArray: true},
 	}, // 1
 	{
-		name:       "",
-		input:      `package p; type T2 [][]int;`,
+		name:       "p2",
 		outputName: "T2",
-		output:     `*ast.ArrayType found on "T2" (not implemented)`,
-	}, // 2
+		output:     &TypeInfo{Package: testPackage, PackagePath: testPackagePath, Name: "T2", Kind: "int", IsArray: true},
+	}, // 2.
 	{
-		name:       "",
-		input:      `package p; type T3 []map[string]string;`,
+		name:       "p2_1",
+		outputName: "T2_1",
+		output:     &TypeInfo{Package: testPackage, PackagePath: testPackagePath, Name: "T2_1", Kind: "int", IsArray: true}, //, IsPointer: true},
+	}, // 2.1.
+	{
+		name:       "p3",
 		outputName: "T3",
-		output:     `*ast.MapType found on "T3" (not implemented)`,
-	}, // 3
+		output:     &TypeInfo{Package: testPackage, PackagePath: testPackagePath, Name: "T3", Kind: "map (temporary)", IsArray: true},
+	}, // 3. `
 	{
-		name:       "",
-		input:      `package p; type S struct { Name string }; type T4 []map[S]string;`,
+		name:       "p4",
 		outputName: "T4",
-		output:     `*ast.MapType found on "T4" (not implemented)`,
-	}, // 4
+		output:     &TypeInfo{Package: testPackage, PackagePath: testPackagePath, Name: "T4", Kind: "map (temporary)", IsArray: true},
+	}, // 4. `
 	{
-		name:       "",
-		input:      `package p; type S struct { Name string }; type T5 []*map[S]string;`,
+		name:       "p5",
 		outputName: "T5",
-		output:     `*ast.StarExpr found on "T5" (not implemented)`,
-	}, // 5
+		output:     &TypeInfo{Package: testPackage, PackagePath: testPackagePath, Name: "T5", Kind: "map (temporary)", IsArray: true, IsPointer: true},
+	}, // 5. `
 	{
-		name:       "",
-		input:      `package p; type T6 []struct{ Name string };`,
+		name:       "p6",
 		outputName: "T6",
-		output:     `*ast.StructType found on "T6" (not implemented)`,
-	}, // 6
+		output:     &TypeInfo{Package: testPackage, PackagePath: testPackagePath, Name: "T6", Kind: "struct (temporary)", IsArray: true},
+	}, // 6. `
 	{
-		name:       "",
-		input:      `package p; type T7 []chan string;`,
+		name:       "p7",
 		outputName: "T7",
-		output:     `*ast.ChanType found on "T7" (not implemented)`,
-	}, // 7
+		output:     &TypeInfo{Package: testPackage, PackagePath: testPackagePath, Name: "T7", Kind: "chan (temporary)", IsArray: true},
+	}, // 7. `
 	{
-		name:       "",
-		input:      `package p; type T8 []*chan string;`,
+		name:       "p8",
 		outputName: "T8",
-		output:     `*ast.StarExpr found on "T8" (not implemented)`,
-	}, // 8
+		output:     &TypeInfo{Package: testPackage, PackagePath: testPackagePath, Name: "T8", Kind: "chan (temporary)", IsArray: true, IsPointer: true},
+	}, // 8. `
 	{
-		name:       "",
+		name:       "p9",
 		outputName: "T9",
-		input:      `package p; type T9 []chan struct{};`,
-	}, // 9
+		output:     &TypeInfo{Package: testPackage, PackagePath: testPackagePath, Name: "T9", Kind: "chan (temporary)", IsArray: true},
+	}, // 9. `
 	{
-		name:       "",
-		input:      `package p; type T10 []*chan *struct{};`,
+		name:       "p10",
 		outputName: "T10",
-	}, // 10
+		output:     &TypeInfo{Package: testPackage, PackagePath: testPackagePath, Name: "T10", Kind: "chan (temporary)", IsArray: true, IsPointer: true},
+	}, // 10. `
 	{
-		name:       "",
-		input:      `package p; type T11 []*struct{ Name string };`,
+		name:       "p11",
 		outputName: "T11",
-		output:     `*ast.StarExpr found on "T11" (not implemented)`,
-	}, // 11
+		output:     &TypeInfo{Package: testPackage, PackagePath: testPackagePath, Name: "T11", Kind: "struct (temporary)", IsArray: true, IsPointer: true},
+	}, // 11. `
 	{
-		name:       "",
-		input:      `package p; type S struct{ Name string }; type T12 []S;`,
+		name:       "p12",
 		outputName: "T12",
 		output: &TypeInfo{
 			Name:        "T12",
-			Kind:        "S",
-			Package:     "p",
-			PackagePath: "p",
+			Kind:        "S3",
+			Package:     testPackage,
+			PackagePath: testPackagePath,
 			IsArray:     true,
-			/*Reference: &TypeInfo{
-				Name:        "S",
-				Package:     "p",
-				PackagePath: "p",
-				Fields: Fields{
-					&FieldInfo{
-						Name:       "Name",
-						Kind:       "string",
-						IsBasic:    true,
-						IsExported: true,
-					},
-				},
-			},*/
 		},
 	}, // 12
 	{
-		name:       "",
-		input:      `package p; type T13 []S13; type S13 struct{ Name string; Email string }; `,
+		name:       "p13",
 		outputName: "T13",
 		output: &TypeInfo{
 			Name:        "T13",
 			Kind:        "S13",
-			Package:     "p",
-			PackagePath: "p",
+			Package:     testPackage,
+			PackagePath: testPackagePath,
 			IsArray:     true,
-			/*Reference: &TypeInfo{
-				Name:        "S13",
-				Package:     "p",
-				PackagePath: "p",
-				Fields: Fields{
-					&FieldInfo{
-						Name:       "Name",
-						Kind:       "string",
-						IsBasic:    true,
-						IsExported: true,
-					},
-					&FieldInfo{
-						Name:       "Email",
-						Kind:       "string",
-						IsBasic:    true,
-						IsExported: true,
-					},
-				},
-			},*/
 		},
 	}, // 13
 	{
-		name:       "",
-		input:      `package p; type S struct{ Name string }; type T14 []*S;`,
+		name:       "p14",
 		outputName: "T14",
 		output: &TypeInfo{
 			Name:        "T14",
-			Kind:        "S",
+			Kind:        "S4",
 			IsPointer:   true,
 			IsArray:     true,
-			Package:     "p",
-			PackagePath: "p",
-			/*Reference: &TypeInfo{
-				Name:        "S",
-				Package:     "p",
-				PackagePath: "p",
-				Fields: Fields{
-					&FieldInfo{
-						Name:       "Name",
-						Kind:       "string",
-						IsBasic:    true,
-						IsExported: true,
-					},
-				},
-			},*/
+			Package:     testPackage,
+			PackagePath: testPackagePath,
 		},
 	}, // 14
 
 	{
-		name: "p",
-		input: `package p 
-					type T15 struct{
-						EmbeddedS // embedded
-						*EmbeddedS2 // embedded pointer
-						error // embedded error 
-						Name string ` + "`json:\"name\"`" + `
-						PtrName *string 
-						unexported string 
-                    }
-					type EmbeddedS struct { 
-						Name string ` + "`json:\"s.name\"`" + `
-						Email string ` + "`json:\"mail\"`" + `
-					}
-					type EmbeddedS2 struct { 
-						Name string ` + "`json:\"s2.name\"`" + `
-					}`,
+		name:       "p15",
 		outputName: "T15",
 		output: &TypeInfo{
+			Package:     testPackage,
+			PackagePath: testPackagePath,
 			Name:        "T15",
 			Kind:        "T15",
-			PackagePath: "p",
-			Package:     "p",
 			Fields: Fields{
-				&FieldInfo{
-					Name:       "EmbeddedS",
+				FieldInfo{
 					Kind:       "EmbeddedS",
 					IsEmbedded: true,
 					IsStruct:   true,
-					/*Reference: &TypeInfo{
-						Name:        "EmbeddedS",
-						PackagePath: "p",
-						Package:     "p",
-						Fields: Fields{
-							&FieldInfo{
-								Name:       "Name",
-								Kind:       "string",
-								IsBasic:    true,
-								IsExported: true,
-								Tags: &Tags{
-									&Tag{Key: "json", Name: "s.name"},
-								},
-							},
-							&FieldInfo{
-								Name:       "Email",
-								Kind:       "string",
-								IsBasic:    true,
-								IsExported: true,
-								Tags: &Tags{
-									&Tag{Key: "json", Name: "mail"},
-								},
+					Comment: &ast.CommentGroup{
+						List: []*ast.Comment{
+							{
+								Slash: 52,
+								Text:  "// embedded",
 							},
 						},
-					},*/
+					},
 				},
-				&FieldInfo{
-					Name:       "EmbeddedS2",
+				FieldInfo{
 					Kind:       "EmbeddedS2",
 					IsPointer:  true,
 					IsEmbedded: true,
 					IsStruct:   true,
-					/*Reference: &TypeInfo{
-						Name:        "EmbeddedS2",
-						PackagePath: "p",
-						Package:     "p",
-						Fields: Fields{
-							&FieldInfo{
-								Name:       "Name",
-								Kind:       "string",
-								IsBasic:    true,
-								IsExported: true,
-								Tags: &Tags{
-									&Tag{Key: "json", Name: "s2.name"},
-								},
+					Comment: &ast.CommentGroup{
+						List: []*ast.Comment{
+							{
+								Slash: 82,
+								Text:  "// embedded pointer",
 							},
 						},
-					},*/
+					},
 				},
-				&FieldInfo{
-					Name:        "error",
+				FieldInfo{
 					Kind:        "error",
 					IsEmbedded:  true,
 					IsInterface: true,
+					Comment: &ast.CommentGroup{
+						List: []*ast.Comment{
+							{
+								Slash: 114,
+								Text:  "// embedded error ",
+							},
+						},
+					},
 				},
-				&FieldInfo{
+				FieldInfo{
 					Name:       "Name",
 					Kind:       "string",
 					IsBasic:    true,
 					IsExported: true,
-					Tags: &Tags{
+					Tags: Tags{
 						&Tag{Key: "json", Name: "name"},
 					},
 				},
-				&FieldInfo{
+				FieldInfo{
 					Name:       "PtrName",
 					Kind:       "string",
 					IsBasic:    true,
 					IsPointer:  true,
 					IsExported: true,
 				},
-				&FieldInfo{
+				FieldInfo{
 					Name:    "unexported",
 					Kind:    "string",
 					IsBasic: true,
@@ -286,344 +200,80 @@ var cases = []testCase{
 		},
 	}, // 15 - some fields
 	{
-		name: "p",
-		input: `package p 
-					type T16 struct{
-						S S
-						Itemz	Items ` + "`json:\"itmz\"`" + `
-						Pricez	Prices ` + "`json:\"prcz\"`" + `
-                    }
-					type S struct{}
-					type Prices []Price 
-					type Items []*Item
-					type Item struct { 
-						Name string ` + "`json:\"name\"`" + `
-						Stock float64
-					}
-					type Price struct { 
-						Name string ` + "`json:\"name\"`" + `
-						Value float64
-					}`,
+		name:       "p16",
 		outputName: "T16",
 		output: &TypeInfo{
 			Name:        "T16",
 			Kind:        "T16",
-			PackagePath: "p",
-			Package:     "p",
+			PackagePath: testPackagePath,
+			Package:     testPackage,
 			Fields: Fields{
-				&FieldInfo{
+				FieldInfo{
 					Name:       "S",
 					Kind:       "S",
 					IsExported: true,
 					IsStruct:   true,
-					/*Reference: &TypeInfo{
-						Name:        "S",
-						Package:     "p",
-						PackagePath: "p",
-					},*/
 				},
-				&FieldInfo{
+				FieldInfo{
 					Name:       "Itemz",
 					Kind:       "Items",
 					IsExported: true,
-					Tags: &Tags{
+					Tags: Tags{
 						&Tag{Key: "json", Name: "itmz"},
 					},
 					IsArray: true,
-					/*Reference: &TypeInfo{
-						Name: "Item",
-						Fields: Fields{
-							&FieldInfo{
-								Name:       "Name",
-								Kind:       "string",
-								IsBasic:    true,
-								IsExported: true,
-								Tags: &Tags{
-									&Tag{Key: "json", Name: "name"},
-								},
-							},
-						},
-					},*/
 				},
-				&FieldInfo{
+				FieldInfo{
 					Name:       "Pricez",
 					Kind:       "Prices",
 					IsExported: true,
-					Tags: &Tags{
+					Tags: Tags{
 						&Tag{Key: "json", Name: "prcz"},
 					},
 					IsArray: true,
-					/*Reference: &TypeInfo{
-						Name: "Price",
-						Fields: Fields{
-							&FieldInfo{
-								Name:       "Name",
-								Kind:       "string",
-								IsBasic:    true,
-								IsExported: true,
-								Tags: &Tags{
-									&Tag{Key: "json", Name: "name"},
-								},
-							},
-						},
-					},*/
 				},
 			},
 		},
 	}, // 16 - has array properties
 	{
-		name: "p",
-		input: `package p 
-					type T17 struct{
-						Items
-                    }
-					type Items []*Item
-					type Item struct { 
-						Name string
-					}`,
+		name:       "p17",
 		outputName: "T17",
 		output: &TypeInfo{
+			Package:     testPackage,
+			PackagePath: testPackagePath,
 			Name:        "T17",
 			Kind:        "T17",
-			PackagePath: "p",
-			Package:     "p",
 			Fields: Fields{
-				&FieldInfo{
-					Name:       "Items",
+				FieldInfo{
 					Kind:       "Items",
 					IsArray:    true,
 					IsEmbedded: true,
-					/*Reference: &TypeInfo{
-						Name: "Item",
-						Fields: Fields{
-							&FieldInfo{
-								Name:       "Name",
-								Kind:       "string",
-								IsBasic:    true,
-								IsExported: true,
-							},
-						},
-					},*/
 				},
 			},
 		},
 	}, // 17 - embed array
 	{
-		name: "p",
-		input: `package p 
-					type T18 struct{
-						Child *T18` + "`json:\"ptr_child\"`" + `
-                    }`,
+		name:       "p18",
 		outputName: "T18",
 		output: &TypeInfo{
 			Name:        "T18",
 			Kind:        "T18",
-			Package:     "p",
-			PackagePath: "p",
+			Package:     testPackage,
+			PackagePath: testPackagePath,
 			Fields: Fields{
-				&FieldInfo{
+				FieldInfo{
 					Name:       "Child",
 					Kind:       "T18",
 					IsPointer:  true,
 					IsExported: true,
 					IsStruct:   true,
-					Tags: &Tags{
+					Tags: Tags{
 						&Tag{Key: "json", Name: "ptr_child"},
 					},
 				},
 			},
 		},
 	}, // 18 - circular reference
-}
-
-func TestAllDefinitions(t *testing.T) {
-	for idx, cCase := range cases {
-		t.Logf("%d. Running test\n", idx)
-		result := PackageInfo{Name: "test"} //, PrintDebug: true}
-		fileSet := token.NewFileSet()
-		astNodes, err := parser.ParseFile(fileSet, cCase.name, cCase.input, parser.DeclarationErrors|parser.AllErrors)
-		if err != nil {
-			t.Fatalf("%d. Fatal error : %v", idx, err)
-		}
-
-		info := types.Info{
-			Types: make(map[ast.Expr]types.TypeAndValue),
-			Defs:  make(map[*ast.Ident]types.Object),
-			Uses:  make(map[*ast.Ident]types.Object),
-		}
-		var conf types.Config
-		_, err = conf.Check("p", fileSet, []*ast.File{astNodes}, &info)
-		if err != nil {
-			t.Fatal(err)
-		}
-		result.TypesInfo = &info
-		/**
-		tx := 0
-		for key, value := range result.TypesInfo.Defs {
-			t.Logf("%d.%d %#v === %#v", idx, tx, key, value)
-			tx++
-		}
-		**/
-		var infoErr error
-		for _, node := range astNodes.Decls {
-			switch nodeType := node.(type) {
-			case *ast.GenDecl:
-				for _, spec := range nodeType.Specs {
-					astSpec := spec.(*ast.TypeSpec)
-					switch astSpec.Type.(type) {
-					case *ast.ArrayType:
-						infoErr = result.ReadArrayInfo(astSpec, nodeType.Doc)
-						if infoErr != nil && cCase.output != nil {
-							if infoErr.Error() != cCase.output {
-								t.Errorf("%d.errors not equal:\nexpected output:\n`%v`\nreceived:\n`%v`", idx, cCase.output, infoErr)
-							}
-						}
-					case *ast.StructType:
-						infoErr = result.ReadStructInfo(astSpec, nodeType.Doc)
-						if infoErr != nil && cCase.output != nil {
-							if infoErr.Error() != cCase.output {
-								t.Errorf("%d.errors not equal:\nexpected output:\n`%v`\nreceived:\n`%v`", idx, cCase.output, infoErr)
-							}
-						}
-					}
-				}
-			}
-		}
-		if infoErr != nil {
-			t.Logf("%d. skipped : info err not nil : %v", idx, infoErr)
-			continue
-		}
-
-		if cCase.output != nil {
-			if cCase.outputName == "" {
-				t.Skipf("%d. output is no-name", idx)
-			}
-			expected := ""
-			var typed *TypeInfo
-			ok := false
-			if typed, ok = cCase.output.(*TypeInfo); ok {
-				expected = dbg_prn.SPrint(typed)
-			} else {
-				t.Logf("%d. Expecting error", idx)
-				e, ok := cCase.output.(string)
-				if !ok {
-					t.Fatalf("cCase.output should be string or *TypeInfo! it's : %T", cCase.output)
-				}
-				expected = dbg_prn.SPrint(e)
-			}
-			received := ""
-			def := result.Types.Extract(cCase.outputName)
-			if def == nil {
-				t.Fatalf("Definition not found looking for %q", cCase.outputName)
-			}
-			received = dbg_prn.SPrint(def)
-			// because circular references, we cannot use reflect.DeepEqual
-			if received != expected {
-				//			changelog, _ := diff.Diff(typed, def)
-				//			t.Logf("%#v", changelog)
-				t.Fatalf("%d. output error: GOT:\n%s\nWANT:\n%s", idx, received, expected)
-			} else {
-				t.Logf("Result of %d:\n%s\nSHOULD BE:\n\n%s\n", idx, received, expected)
-			}
-		} else {
-			t.Logf("%d. skipped - expecting nothing", idx)
-		}
-	}
-}
-
-func TestOneDefinition(t *testing.T) {
-	idx := 18
-	cCase := cases[idx]
-	t.Logf("%d. Running test\n", idx)
-	result := PackageInfo{Name: "test"} //, PrintDebug: true}
-	fileSet := token.NewFileSet()
-	astNodes, err := parser.ParseFile(fileSet, cCase.name, cCase.input, parser.DeclarationErrors|parser.AllErrors)
-	if err != nil {
-		t.Fatalf("%d. Fatal error : %v", idx, err)
-	}
-
-	info := types.Info{
-		Types: make(map[ast.Expr]types.TypeAndValue),
-		Defs:  make(map[*ast.Ident]types.Object),
-		Uses:  make(map[*ast.Ident]types.Object),
-	}
-	var conf types.Config
-	_, err = conf.Check("p", fileSet, []*ast.File{astNodes}, &info)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result.TypesInfo = &info
-	/**
-	tx := 0
-	for key, value := range result.TypesInfo.Defs {
-		t.Logf("%d.%d %#v === %#v", idx, tx, key, value)
-		tx++
-	}
-	**/
-	var infoErr error
-	for _, node := range astNodes.Decls {
-		switch nodeType := node.(type) {
-		case *ast.GenDecl:
-			for _, spec := range nodeType.Specs {
-				astSpec := spec.(*ast.TypeSpec)
-				switch astSpec.Type.(type) {
-				case *ast.ArrayType:
-					infoErr = result.ReadArrayInfo(astSpec, nodeType.Doc)
-					if infoErr != nil && cCase.output != nil {
-						if infoErr.Error() != cCase.output {
-							t.Errorf("%d.errors not equal:\nexpected output:\n`%v`\nreceived:\n`%v`", idx, cCase.output, infoErr)
-						}
-					}
-				case *ast.StructType:
-					infoErr = result.ReadStructInfo(astSpec, nodeType.Doc)
-					if infoErr != nil && cCase.output != nil {
-						if infoErr.Error() != cCase.output {
-							t.Errorf("%d.errors not equal:\nexpected output:\n`%v`\nreceived:\n`%v`", idx, cCase.output, infoErr)
-						}
-					}
-				}
-			}
-		}
-	}
-	if infoErr != nil {
-		t.Skipf("%d. skipped : info err not nil : %v", idx, infoErr)
-	}
-
-	if cCase.output != nil {
-		if cCase.outputName == "" {
-			t.Skipf("%d. output is no-name", idx)
-		}
-		expected := ""
-		var typed *TypeInfo
-		ok := false
-		if typed, ok = cCase.output.(*TypeInfo); ok {
-			expected = dbg_prn.SPrint(typed)
-		} else {
-			t.Logf("%d. Expecting error", idx)
-			e, ok := cCase.output.(string)
-			if !ok {
-				t.Fatalf("cCase.output should be string or *TypeInfo! it's : %T", cCase.output)
-			}
-			expected = dbg_prn.SPrint(e)
-		}
-		received := ""
-		def := result.Types.Extract(cCase.outputName)
-		if def == nil {
-			t.Fatalf("Definition not found looking for %q", cCase.outputName)
-		}
-		received = dbg_prn.SPrint(def)
-		// because circular references, we cannot use reflect.DeepEqual
-		if received != expected {
-			//			changelog, _ := diff.Diff(typed, def)
-			//			t.Logf("%#v", changelog)
-			t.Fatalf("%d. output error: GOT:\n%s\nWANT:\n%s", idx, received, expected)
-		} else {
-			t.Logf("Result of %d:\n%s\nSHOULD BE:\n\n%s\n", idx, received, expected)
-		}
-	} else {
-		t.Logf("%d. skipped - expecting nothing", idx)
-	}
-
 }
 
 func TestLoadWithExternal(t *testing.T) {
@@ -717,5 +367,182 @@ func TestLoadWithCommand(t *testing.T) {
 	if err := command.Analyse(codeBuilder, thePackages[0]); err != nil {
 		t.Fatalf("error analyzing package : %v", err)
 	}
-	t.Logf("Result : %s", dbg_prn.SPrint(command.Result))
+	t.Logf("Result : %s", halp.SPrint(command.Result))
+}
+
+func TestLoadStdPackage(t *testing.T) {
+	const (
+		currentType = "RawMessage"
+	)
+	loadedPackage, err := LoadPackage("encoding/json")
+	if err != nil {
+		t.Fatalf("error : %v", err)
+	}
+	codeBuilder := DefaultAnalyzer()
+	command := NewCommand(codeBuilder)
+	if err := command.Analyse(codeBuilder, loadedPackage); err != nil {
+		t.Fatalf("error : %v", err)
+	}
+
+	resultType := command.Result.Types.Extract(currentType)
+	if resultType == nil {
+		var knownTypes []string
+		for _, sType := range command.Result.Types {
+			knownTypes = append(knownTypes, sType.Kind)
+		}
+		t.Fatalf("error : %q not found in types\nknown types:\n%s", currentType, strings.Join(knownTypes, "\n"))
+	}
+
+	t.Logf("listing %q :\n %s", currentType, halp.SPrint(resultType))
+	for _, field := range resultType.Fields {
+		t.Logf("field :\n %#v\n", field)
+	}
+	for _, fn := range resultType.MethodList {
+		t.Logf("method :\n %#v\n", fn)
+	}
+}
+
+func TestTypesInfoDefs(t *testing.T) {
+	const packageName = "encoding/json"
+	loadedPackage, err := LoadPackage(packageName)
+	if err != nil {
+		t.Fatalf("error : %v", err)
+	}
+	codeBuilder := DefaultAnalyzer()
+	command := NewCommand(codeBuilder)
+	if err := command.Analyse(codeBuilder, loadedPackage); err != nil {
+		t.Fatalf("error : %v", err)
+	}
+	packageParts := strings.Split(packageName, "/")
+	currentPackage := packageParts[len(packageParts)-1]
+	t.Logf("Dumping knowhow:")
+	alreadyDumped := make(map[string]struct{})
+	for key, value := range command.Result.TypesInfo.Types {
+		if !value.IsType() {
+			//t.Logf("value not type : %s", dbg_prn.SPrint(value))
+			continue
+		}
+
+		keyStr := ""
+		switch kType := key.(type) {
+		case *ast.Ident:
+			keyStr = "[ident] `" + kType.Name + "`"
+		default:
+			continue
+			//case *ast.StructType:
+			//	keyStr = fmt.Sprintf("[struct] %d fields : %s", kType.Fields.NumFields(), dbg_prn.SPrint(key)) //+ dbg_prn.SPrint(kType.Fields)
+			//case *ast.SelectorExpr:
+			//	keyStr = "[selector] " + dbg_prn.SPrint(kType.Sel)
+			//default:
+			//	keyStr = fmt.Sprintf("[%T] %s", kType, dbg_prn.SPrint(kType))
+		}
+
+		switch structDef := value.Type.Underlying().(type) {
+		case *types.Struct:
+			pushContinue := false
+			for i := 0; i < structDef.NumFields(); i++ {
+				field := structDef.Field(i)
+				if field.Pkg().Name() != currentPackage {
+					//t.Logf("field is not in package : %s",  field.Pkg().Name())
+					// this is not in current package - might be useful, but taking one package at a time
+					pushContinue = true
+					break
+				}
+			}
+			if pushContinue {
+				continue
+			}
+			if _, has := alreadyDumped[keyStr]; has {
+				continue
+			}
+			alreadyDumped[keyStr] = struct{}{}
+			t.Logf("Struct : %s", keyStr)
+			for i := 0; i < structDef.NumFields(); i++ {
+				field := structDef.Field(i)
+				if !field.IsField() {
+					t.Logf("field is not field : %s", halp.SPrint(field))
+					continue
+				}
+				if field.Pkg().Name() != currentPackage {
+					//t.Logf("field is not in package : %s",  field.Pkg().Name())
+					// this is not in current package - might be useful, but taking one package at a time
+					continue
+				}
+				embed := ""
+				if field.Embedded() {
+					embed = "embedded"
+				}
+				anon := ""
+				if field.Anonymous() {
+					anon = "anonymous"
+				}
+				private := ""
+				if field.Exported() {
+					private = "public"
+				}
+				fieldKind := ""
+				switch uType := field.Type().Underlying().(type) {
+				case *types.Slice:
+					// slice of something
+					fieldKind = "[]" + uType.Elem().String()
+				case *types.Array:
+					// slice of something
+					fieldKind = "[" + uType.Elem().String() + "]" + uType.Elem().String()
+				case *types.Basic:
+					// basic field (int, string, etc)
+					fieldKind = uType.Name()
+				case *types.Pointer:
+					fieldKind = "*" + uType.String()
+				case *types.Signature:
+					// function field
+					fieldKind = "func()"
+				case *types.Struct:
+					fieldKind = "struct{} " + strconv.Itoa(uType.NumFields()) + " fields"
+				case *types.Named:
+					fieldKind = "->" + halp.SPrint(uType.Underlying())
+				case *types.Interface:
+					switch iType := field.Type().(type) {
+					case *types.Named:
+						fieldKind = "interface `" + iType.String() + "` [" + strconv.Itoa(iType.NumMethods()) + " methods]"
+					default:
+						fieldKind = "interface ??? " + iType.String() + " [" + halp.SPrint(iType) + "]"
+					}
+				case *types.Map:
+					fieldKind = "map [" + uType.Key().String() + "]" + uType.Elem().String()
+				default:
+					fieldKind = "{{" + halp.SPrint(uType) + "}}"
+				}
+				t.Logf("\t%s %s %s field in package %q named %q of kind %s", embed, anon, private, field.Pkg().Name(), field.Name(), fieldKind)
+			}
+		}
+	}
+}
+
+func TestLoadExamplePackage(t *testing.T) {
+	loadedPackage, err := LoadPackage(testPackagePath)
+	if err != nil {
+		t.Fatalf("error : %v", err)
+	}
+	codeBuilder := DefaultAnalyzer()
+	command := NewCommand(codeBuilder)
+	if err := command.Analyse(codeBuilder, loadedPackage); err != nil {
+		t.Fatalf("error : %v", err)
+	}
+	for idx := 0; idx < len(cases); idx++ {
+		currentType := cases[idx].outputName
+		resultType := command.Result.Types.Extract(currentType)
+		if resultType == nil {
+			var knownTypes []string
+			for _, sType := range command.Result.Types {
+				knownTypes = append(knownTypes, sType.Kind)
+			}
+			t.Fatalf("error : %q not found in types\nknown types:\n%s", currentType, strings.Join(knownTypes, "\n"))
+		}
+		if compared := halp.Equal(resultType, cases[idx].output); compared != nil {
+			t.Logf("%#v", compared)
+			t.Fatalf("expected :\n%s\nactual :\n%s\n", halp.SPrint(cases[idx].output), halp.SPrint(resultType))
+		}
+	}
+
+	t.Log("test finished.")
 }
