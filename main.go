@@ -189,6 +189,8 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 							typeInfo.Kind = fieldInfo.Kind
 							typeInfo.Name = typeSpec.Name.Name
 							typeInfo.IsAlias = true
+							typeInfo.IsImported = fieldInfo.IsImported
+							typeInfo.IsPointer = fieldInfo.IsPointer
 							result.Types = append(result.Types, typeInfo)
 						} else {
 							log.Printf("error reading ident : %v", infoErr)
@@ -203,7 +205,8 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 							typeInfo.Kind = fieldInfo.Kind
 							typeInfo.Name = typeSpec.Name.Name
 							typeInfo.IsAlias = true
-							typeInfo.HasImported = fieldInfo.IsImported
+							typeInfo.IsImported = fieldInfo.IsImported
+							typeInfo.IsPointer = fieldInfo.IsPointer
 							result.Types = append(result.Types, typeInfo)
 						} else {
 							log.Printf("error reading selector : %v", infoErr)
@@ -218,6 +221,8 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 							typeInfo.Kind = fieldInfo.Kind
 							typeInfo.Name = typeSpec.Name.Name
 							typeInfo.IsAlias = true
+							typeInfo.IsImported = fieldInfo.IsImported
+							typeInfo.IsPointer = fieldInfo.IsPointer
 							result.Types = append(result.Types, typeInfo)
 						} else {
 							log.Printf("error reading pointer : %v", infoErr)

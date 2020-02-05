@@ -11,7 +11,7 @@ type TypeInfo struct {
 	Kind        string // usually the way we Extract
 	IsArray     bool   // if it's not array, it's struct
 	IsPointer   bool   // if array, it's pointer
-	HasImported bool   // if array, it's pointer
+	IsImported  bool   // if array, it's pointer
 	IsAlias     bool   // if array, it's pointer
 	Fields      Fields
 	MethodList  Methods

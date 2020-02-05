@@ -296,6 +296,67 @@ var cases = []testCase{
 			},
 		},
 	}, // 18 - circular reference
+	{
+		name:       "p19",
+		outputName: "ExternalSliceOfPointers",
+		output: &TypeInfo{
+			Package:     testPackage,
+			PackagePath: testPackagePath,
+			Name:        "ExternalSliceOfPointers",
+			Kind:        "time.Time",
+			IsPointer:   true,
+			IsArray:     true,
+			IsImported:  true,
+		},
+	}, // 19 - type ExternalSliceOfPointers []*time.Time
+	{
+		name:       "p20",
+		outputName: "ExternalPtrAlias",
+		output: &TypeInfo{
+			Package:     testPackage,
+			PackagePath: testPackagePath,
+			Name:        "ExternalPtrAlias",
+			Kind:        "time.Ticker",
+			IsPointer:   true,
+			IsImported:  true,
+			IsAlias:     true,
+		},
+	}, // 20 - type ExternalPtrAlias *time.Ticker
+	{
+		name:       "p21",
+		outputName: "ExternalAlias",
+		output: &TypeInfo{
+			Package:     testPackage,
+			PackagePath: testPackagePath,
+			Name:        "ExternalAlias",
+			Kind:        "time.Ticker",
+			IsImported:  true,
+			IsAlias:     true,
+		},
+	}, // 21 - type ExternalAlias time.Ticker
+	{
+		name:       "p22",
+		outputName: "BasicPtrAlias",
+		output: &TypeInfo{
+			Package:     testPackage,
+			PackagePath: testPackagePath,
+			Name:        "BasicPtrAlias",
+			Kind:        "string",
+			IsPointer:   true,
+			IsAlias:     true,
+		},
+	}, // 22 - type BasicPtrAlias *string
+	{
+		name:       "p23",
+		outputName: "BasicAlias",
+		output: &TypeInfo{
+			Package:     testPackage,
+			PackagePath: testPackagePath,
+			Name:        "BasicAlias",
+			Kind:        "string",
+			IsAlias:     true,
+		},
+	}, // 23 - type BasicAlias string
 }
 
 func TestLoadExamplePackage(t *testing.T) {

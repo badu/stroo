@@ -337,6 +337,7 @@ func strooHandler(command *Command) http.HandlerFunc {
 			firstTypeName := ""
 			if len(tempCommand.Result.Types) >= 1 {
 				firstTypeName = tempCommand.Result.Types[0].Kind
+				tempCommand.SelectedType = firstTypeName
 			}
 			// create code
 			cachedResult, err = New(tempCommand.Result, tempCommand.CodeConfig, nil, firstTypeName)

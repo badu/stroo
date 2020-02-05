@@ -32,12 +32,11 @@ func (pkg *PackageInfo) LoadImports(fromImports []*types.Package) {
 	}
 }
 func fixFieldsInfo(defs *types.Info, forType *TypeInfo) {
-	cacau := make(map[string][]types.Object)
 	for idx := range forType.Fields {
 		for key, value := range defs.Defs {
 			if key.Name == forType.Fields[idx].Kind {
-				cacau[forType.Fields[idx].Kind] = append(cacau[forType.Fields[idx].Kind], value)
 				if forType.Fields[idx].Package == "" {
+					log.Printf("%q DOESN'T have a package", forType.Fields[idx].Kind)
 					// must belong to some package
 					//forType.Fields[idx].Package = value.Pkg().Name()
 				}
@@ -72,13 +71,6 @@ func fixFieldsInfo(defs *types.Info, forType *TypeInfo) {
 					log.Printf("lookup unknown %q -> exported %t; type %#v; package= %v; id=%q\n%T", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id(), underType)
 				}
 			}
-		}
-	}
-	log.Printf("Fixes for : %q", forType.Kind)
-	for kind, collection := range cacau {
-		log.Printf("\tkind %q", kind)
-		for _, value := range collection {
-			log.Printf("\t\tvalue %q -> exported %t; type %#v; package= %v; id=%q", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id())
 		}
 	}
 }
@@ -309,6 +301,7 @@ func readType(pkg *types.Package, astSpec *ast.TypeSpec, comment *ast.CommentGro
 		if err == nil {
 			result.Kind = elInfo.Kind
 			result.IsPointer = elInfo.IsPointer
+			result.IsImported = elInfo.IsImported
 		}
 	case *ast.InterfaceType:
 		for _, method := range typedSpec.Methods.List {
@@ -339,13 +332,14 @@ func readElemType(arr *ast.ArrayType) (*TypeInfo, error) {
 		if err == nil {
 			result.Kind = fieldInfo.Kind
 			result.IsPointer = fieldInfo.IsPointer
+			result.IsImported = fieldInfo.IsImported
 		}
 	case *ast.SelectorExpr:
 		fieldInfo, err := readSelector(elType, nil)
 		if err == nil {
 			result.Kind = fieldInfo.Kind
-			result.IsPointer = fieldInfo.IsPointer    // TODO : check
-			result.HasImported = fieldInfo.IsImported // TODO : check
+			result.IsPointer = fieldInfo.IsPointer   // TODO : check
+			result.IsImported = fieldInfo.IsImported // TODO : check
 			if fieldInfo.Package != "" {
 				result.Package = fieldInfo.Package // TODO : check
 			}

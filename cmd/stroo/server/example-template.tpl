@@ -35,12 +35,9 @@ sb.WriteString("{{.Prefix}}{{.Name}}="+{{ if .IsPointer }}*{{ end }}st.{{.Prefix
 	{{- template "PointerClose" . -}}
 {{ end }}
 {{ define "Recurse" }}
-	{{- if eq .Package .Root.PackageInfo.Name -}}
-		{{- if (.Root.HasNotGenerated .Package .Kind) -}}
-			{{- if .Root.RecurseGenerate .Package .Kind -}}{{- end -}}
-		{{- end -}}
+	{{- if (.Root.HasNotGenerated .Package .Kind) -}}
+		{{- if .Root.RecurseGenerate .Package .Kind -}}{{- end -}}
 	{{- end -}}
-	// checking equality of {{.Package}} and {{.Root.PackageInfo.Name}}
 {{ end }}
 {{ define "Embedded" }}
 	// embedded `{{.StructOrArrayString}}` of `{{.RealKind}}` with prefix `{{.Prefix}}` : `{{.Package}}`.`{{.PackagePath}}`
@@ -105,7 +102,7 @@ sb.WriteString("{{.Prefix}}{{.Name}}="+{{ if .IsPointer }}*{{ end }}st.{{.Prefix
 				{{ else if .IsBasic }}
 					{{- template "BasicType" . -}}
 				{{ else -}}
-      				/** implement me {{ .Root.Implements . }}! **/
+
       			{{ end }}
 			{{ end -}}
 		{{ end }}
@@ -121,7 +118,8 @@ sb.WriteString("{{.Prefix}}{{.Name}}="+{{ if .IsPointer }}*{{ end }}st.{{.Prefix
 		{{ end }}
 	{{ end }}
 {{ end }}
-{{- with .Main -}}
+{{ $main := .StructByKey .CodeConfig.SelectedType }}
+{{- with $main -}}
 	{{ template "String" . }}
 {{ end }}
 {{ range .ListStored }}

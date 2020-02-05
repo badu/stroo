@@ -79,10 +79,13 @@ func (c *Code) StructByKey(key string) (*TypeInfo, error) {
 }
 
 // returns true if the key exist and will overwrite
-func (c *Code) Store(key string, value interface{}) bool {
+func (c *Code) Store(key string, value interface{}) error {
 	_, has := c.keeper[key]
+	if has {
+		log.Printf("%q was overwritten in store", key)
+	}
 	c.keeper[key] = value
-	return has
+	return nil
 }
 
 // retrieves the entire "storage" at template dev disposal
@@ -192,6 +195,7 @@ func (c *Code) HasNotGenerated(pkg, kind string) (bool, error) {
 // uses the template name to apply the template recursively
 // it's useful for replacing the code in existing generated files
 func (c *Code) RecurseGenerate(pkg, kind string) error {
+
 	if c.templateName == "" {
 		return errors.New("you haven't called Declare(methodName) to allow replacing existing generated code")
 	}
@@ -219,10 +223,19 @@ func (c *Code) RecurseGenerate(pkg, kind string) error {
 	if nt == nil || err != nil {
 		return err
 	}
-	if nt.HasImported {
-		log.Printf("%q in package %q has imported - don't go this way", kind, pkg)
-		return nil
+	if nt.IsImported {
+		log.Printf("%q in package %q it's imported", kind, pkg)
+		return fmt.Errorf("%q in package %q it's imported", kind, pkg)
 	}
+	if nt.Package != pkg {
+		log.Printf("%q in package %q it's a different pacakge %q", kind, pkg, nt.Package)
+		return fmt.Errorf("%q in package %q it's a different pacakge %q", kind, pkg, nt.Package)
+	}
+	if IsBasic(nt.Kind) {
+		log.Printf("RecurseGenerate : call for basic kind %q", nt.Kind)
+		return errors.New("don't recurse call for basic kind")
+	}
+	log.Printf("ok generating for %q in package %q", nt.Kind, pkg)
 	var buf strings.Builder
 	err = c.tmpl.ExecuteTemplate(&buf, c.templateName, nt)
 	if err != nil {
