@@ -1,9 +1,8 @@
-{{ if .Declare "String" }}{{ end }}{{/* pass kind of methods we're going to generate */}}
-{{- .AddToImports "bytes" }}{{/* knowing that we're going to use this packges */}}
-{{- .AddToImports "strconv" }}{{/* we're adding them to imports */}}
-{{- .AddToImports "fmt" }}
-{{- .AddToImports "strings" -}}
-package {{.PackageInfo.Name}}
+{{ if declare "String" }}{{ end }}{{/* pass kind of methods we're going to generate */}}
+{{- addToImports "strconv" }}{{/* knowing that we're going to use this packges */}}
+{{- addToImports "fmt" }}{{/* we're adding them to imports */}}
+{{- addToImports "strings" -}}
+package {{.PackageName}}
 {{ if .Imports }}
 import (
 	{{range .Imports -}}
@@ -35,8 +34,8 @@ sb.WriteString("{{.Prefix}}{{.Name}}="+{{ if .IsPointer }}*{{ end }}st.{{.Prefix
 	{{- template "PointerClose" . -}}
 {{ end }}
 {{ define "Recurse" }}
-	{{- if (.Root.HasNotGenerated .Package .Kind) -}}
-		{{- if .Root.RecurseGenerate .Package .Kind -}}{{- end -}}
+	{{- if (hasNotGenerated .Package .Kind) -}}
+		{{- if recurseGenerate .Package .Kind -}}{{- end -}}
 	{{- end -}}
 {{ end }}
 {{ define "Embedded" }}
@@ -44,7 +43,7 @@ sb.WriteString("{{.Prefix}}{{.Name}}="+{{ if .IsPointer }}*{{ end }}st.{{.Prefix
 	{{ template "Recurse" . -}}
 	{{- if .IsStruct }}		
 		{{- $outerName := concat (concat .Name ".") .Prefix -}}
-        {{- range $field := (.Root.StructByKey .Name).Fields -}}
+        {{- range $field := (structByKey .Name).Fields -}}
 			// embedded field named `{{ $field.Name }}` of type `{{ .RealKind }}`
             {{ $err := $field.SetPrefix $outerName }}
 			{{- template "Pointer" $field -}}
@@ -118,10 +117,10 @@ sb.WriteString("{{.Prefix}}{{.Name}}="+{{ if .IsPointer }}*{{ end }}st.{{.Prefix
 		{{ end }}
 	{{ end }}
 {{ end }}
-{{ $main := .StructByKey .CodeConfig.SelectedType }}
+{{ $main := structByKey .SelectedType }}
 {{- with $main -}}
 	{{ template "String" . }}
 {{ end }}
-{{ range .ListStored }}
+{{ range listStored }}
 {{.}}
 {{ end }}

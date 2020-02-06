@@ -19,11 +19,13 @@ type Code struct {
 	Main         *TypeInfo              // not nil if we're working with a preselected type
 }
 
+var Root *Code
+
 func New(
 	info *PackageInfo,
 	config CodeConfig,
-	template *template.Template,
 	selectedType string,
+	tmpl *template.Template,
 ) (*Code, error) {
 	result := &Code{
 		PackageInfo: info,
@@ -35,9 +37,8 @@ func New(
 	for _, imprt := range info.Imports {
 		result.AddToImports(imprt.Path)
 	}
-	// we were provided with a template
-	if template != nil {
-		result.tmpl = template
+	if tmpl != nil {
+		result.tmpl = tmpl
 	}
 	// we were provided with a preselected type
 	if selectedType != "" {
@@ -47,6 +48,7 @@ func New(
 			return nil, err
 		}
 	}
+	Root = result // set global, there is no other way to make template aware of the "common"
 	return result, nil
 }
 
@@ -61,19 +63,14 @@ func (c *Code) SelectedPeerType() string       { return c.CodeConfig.SelectedPee
 func (c *Code) Tmpl() *template.Template       { return c.tmpl } // TODO temporary - can't really say what's the usage
 func (c *Code) Keeper() map[string]interface{} { return c.keeper }
 func (c *Code) ResetKeeper()                   { c.keeper = make(map[string]interface{}) }
+func (c *Code) PackageName() string            { return c.PackageInfo.Name }
 
 // gets a struct declaration by it's name
-// also sets the reference to this, so it can be accessed as Root()
 func (c *Code) StructByKey(key string) (*TypeInfo, error) {
 	result := c.PackageInfo.Types.Extract(key)
 	if result == nil {
 		log.Printf("error looking for %q into types", key)
 		return nil, fmt.Errorf("error looking for %q into types", key)
-	}
-	// set access to root to type and it's fields
-	result.root = c
-	for idx := range result.Fields {
-		result.Fields[idx].root = c
 	}
 	return result, nil
 }
@@ -173,29 +170,47 @@ func (c *Code) Declare(name string) error {
 // checker for recurse generated
 func (c *Code) HasNotGenerated(pkg, kind string) (bool, error) {
 	if c == nil {
-		return false, errors.New("impossible : code was not passed here (.Root ???)")
+		return false, errors.New("impossible : code was not passed here (.Root missing ???)")
 	}
 	if c.templateName == "" {
-		log.Printf("you haven't called Declare(methodName) to allow replacing existing generated code")
+		//log.Printf("you haven't called Declare(methodName) to allow replacing existing generated code")
 		return false, errors.New("you haven't called Declare(methodName) to allow replacing existing generated code")
 	}
 	if pkg == "" {
-		log.Printf("HasNotGenerated : empty package on kind %q", kind)
+		//log.Printf("HasNotGenerated : empty package on kind %q", kind)
 		return false, nil
 	}
 	if pkg != c.PackageInfo.Name {
-		log.Printf("HasNotGenerated : different packages %q != %q", pkg, c.PackageInfo.Name)
+		//log.Printf("HasNotGenerated : different packages %q != %q", pkg, c.PackageInfo.Name)
 		return false, nil
 	}
-	_, has := c.keeper[c.templateName+kind]
-	//log.Printf("HasNotGenerated[imported=%t] %q %q ? %t", pkg, kind, has)
+	// check if we're going to allow call to RecurseGenerate (optim calls)
+	nt, err := c.StructByKey(kind)
+	if nt == nil || err != nil {
+		return false, err
+	}
+	if nt.IsImported {
+		//log.Printf("HasNotGenerated : %q in package %q it's maked imported", kind, pkg)
+		return false, nil
+	}
+	if nt.Package != pkg {
+		//log.Printf("HasNotGenerated : %q in package %q it's a different package %q", kind, pkg, nt.Package)
+		return false, nil
+	}
+	if IsBasic(nt.Kind) {
+		//log.Printf("HasNotGenerated : call for basic kind %q", nt.Kind)
+		return false, nil
+	}
+	// finally we deliver result
+	entity := c.templateName + kind
+	_, has := c.keeper[entity]
+	//log.Printf("HasNotGenerated : %q %t", entity, has)
 	return !has, nil
 }
 
 // uses the template name to apply the template recursively
 // it's useful for replacing the code in existing generated files
 func (c *Code) RecurseGenerate(pkg, kind string) error {
-
 	if c.templateName == "" {
 		return errors.New("you haven't called Declare(methodName) to allow replacing existing generated code")
 	}
@@ -209,14 +224,15 @@ func (c *Code) RecurseGenerate(pkg, kind string) error {
 	}
 	entity := c.templateName + kind
 	if c.CodeConfig.DebugPrint {
-		log.Printf("Processing %q %q ", c.templateName, kind)
+		log.Printf("RecurseGenerate : processing %q %q ", c.templateName, kind)
 	}
 	// already has it
 	if _, has := c.keeper[entity]; has {
 		if c.CodeConfig.DebugPrint {
-			log.Printf("%q already stored.", kind)
+			log.Printf("RecurseGenerate : %q already stored.", kind)
 		}
-		return errors.New("`" + kind + "` already stored. you are not checking that yourself?")
+		log.Printf("RecurseGenerate : %q ALREADY stored.", kind)
+		return errors.New("RecurseGenerate : `" + kind + "` already stored. you are not checking that yourself?")
 	}
 
 	nt, err := c.StructByKey(kind)
@@ -224,31 +240,29 @@ func (c *Code) RecurseGenerate(pkg, kind string) error {
 		return err
 	}
 	if nt.IsImported {
-		log.Printf("%q in package %q it's imported", kind, pkg)
-		return fmt.Errorf("%q in package %q it's imported", kind, pkg)
+		log.Printf("RecurseGenerate : %q in package %q it's imported", kind, pkg)
+		return fmt.Errorf("RecurseGenerate : %q in package %q it's imported", kind, pkg)
 	}
 	if nt.Package != pkg {
-		log.Printf("%q in package %q it's a different pacakge %q", kind, pkg, nt.Package)
-		return fmt.Errorf("%q in package %q it's a different pacakge %q", kind, pkg, nt.Package)
+		log.Printf("RecurseGenerate : %q in package %q it's a different pacakge %q", kind, pkg, nt.Package)
+		return fmt.Errorf("RecurseGenerate : %q in package %q it's a different package %q", kind, pkg, nt.Package)
 	}
 	if IsBasic(nt.Kind) {
 		log.Printf("RecurseGenerate : call for basic kind %q", nt.Kind)
-		return errors.New("don't recurse call for basic kind")
+		return errors.New("RecurseGenerate : don't recurse call for basic kind")
 	}
-	log.Printf("ok generating for %q in package %q", nt.Kind, pkg)
+	//log.Printf("RecurseGenerate : %q for kind %q generating in package %q", entity, nt.Kind, pkg)
 	var buf strings.Builder
+	c.keeper[entity] = "" // mark it empty
 	err = c.tmpl.ExecuteTemplate(&buf, c.templateName, nt)
 	if err != nil {
-		if c.CodeConfig.DebugPrint {
-			log.Printf("generate and store error : %v", err)
-		}
-		log.Printf("generate and store error : %v", err) // TODO : remove it after finishing dev
+		c.keeper[entity] = "//" + err.Error() // put a comment with that error
+		log.Printf("RecurseGenerate template error : %v", err)
 		return err
 	}
+	// everything went fine
 	c.keeper[entity] = buf.String()
-	if c.CodeConfig.DebugPrint {
-		log.Printf("%q stored.", kind)
-	}
+	//log.Printf("RecurseGenerate : %q for kind %q in package %q STORED", entity, nt.Kind, pkg)
 	return nil
 }
 

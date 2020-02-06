@@ -527,29 +527,15 @@ func TestTypesInfoDefs(t *testing.T) {
 	}
 	packageParts := strings.Split(packageName, "/")
 	currentPackage := packageParts[len(packageParts)-1]
-	t.Logf("Dumping knowhow:")
+	t.Logf("Dumping knowhow: %q %q", loadedPackage.Name, loadedPackage.PkgPath)
 	alreadyDumped := make(map[string]struct{})
-	for key, value := range command.Result.TypesInfo.Types {
-		if !value.IsType() {
-			//t.Logf("value not type : %s", dbg_prn.SPrint(value))
+	for key, value := range command.Result.TypesInfo.Defs {
+		keyStr := "[ident] `" + key.Name + "`"
+		if value == nil {
+			t.Logf("IDENT : %s TYPE IS NIL", keyStr)
 			continue
 		}
-
-		keyStr := ""
-		switch kType := key.(type) {
-		case *ast.Ident:
-			keyStr = "[ident] `" + kType.Name + "`"
-		default:
-			continue
-			//case *ast.StructType:
-			//	keyStr = fmt.Sprintf("[struct] %d fields : %s", kType.Fields.NumFields(), dbg_prn.SPrint(key)) //+ dbg_prn.SPrint(kType.Fields)
-			//case *ast.SelectorExpr:
-			//	keyStr = "[selector] " + dbg_prn.SPrint(kType.Sel)
-			//default:
-			//	keyStr = fmt.Sprintf("[%T] %s", kType, dbg_prn.SPrint(kType))
-		}
-
-		switch structDef := value.Type.Underlying().(type) {
+		switch structDef := value.Type().Underlying().(type) {
 		case *types.Struct:
 			pushContinue := false
 			for i := 0; i < structDef.NumFields(); i++ {
@@ -565,10 +551,11 @@ func TestTypesInfoDefs(t *testing.T) {
 				continue
 			}
 			if _, has := alreadyDumped[keyStr]; has {
+				t.Logf("IDENT : %s ALREADY DUMPED", keyStr)
 				continue
 			}
 			alreadyDumped[keyStr] = struct{}{}
-			t.Logf("Struct : %s", keyStr)
+			t.Logf("IDENT : %s", keyStr)
 			for i := 0; i < structDef.NumFields(); i++ {
 				field := structDef.Field(i)
 				if !field.IsField() {
@@ -576,7 +563,7 @@ func TestTypesInfoDefs(t *testing.T) {
 					continue
 				}
 				if field.Pkg().Name() != currentPackage {
-					//t.Logf("field is not in package : %s",  field.Pkg().Name())
+					t.Logf("field is not in package : %s", field.Pkg().Name())
 					// this is not in current package - might be useful, but taking one package at a time
 					continue
 				}
@@ -607,7 +594,28 @@ func TestTypesInfoDefs(t *testing.T) {
 					fieldKind = "*" + uType.String()
 				case *types.Signature:
 					// function field
-					fieldKind = "func()"
+					paramsStr := "("
+					for i := 0; i < uType.Params().Len(); i++ {
+						if i > 0 {
+							paramsStr += ","
+						}
+						paramsStr += uType.Params().At(i).Name() + " " + uType.Params().At(i).Type().Underlying().String() + ""
+					}
+					paramsStr += ")"
+					resultsStr := " "
+					if uType.Results().Len() > 1 {
+						resultsStr += "("
+					}
+					for i := 0; i < uType.Results().Len(); i++ {
+						if i > 0 {
+							paramsStr += ","
+						}
+						paramsStr += uType.Results().At(i).Name() + " " + uType.Results().At(i).Type().Underlying().String() + ""
+					}
+					if uType.Results().Len() > 1 {
+						resultsStr += ")"
+					}
+					fieldKind = "func" + paramsStr + resultsStr
 				case *types.Struct:
 					fieldKind = "struct{} " + strconv.Itoa(uType.NumFields()) + " fields"
 				case *types.Named:

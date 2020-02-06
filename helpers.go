@@ -16,7 +16,6 @@ func LoadPackage(path string) (*packages.Package, error) {
 		Tests: false, //TODO : decide if tests are useful
 	}
 
-	// did you knew that you can `loadedPackages, err := packages.Load(config, fmt.Sprintf("file=%s", filename))`
 	loadedPackage, err := packages.Load(&conf, path) //supports variadic multiple paths but we're using only one
 	if err != nil {
 		log.Printf("error loading package %q : %v\n", path, err)

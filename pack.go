@@ -31,48 +31,56 @@ func (pkg *PackageInfo) LoadImports(fromImports []*types.Package) {
 		pkg.Imports = append(pkg.Imports, &Imports{Path: imprt.Path(), Name: imprt.Name()})
 	}
 }
-func fixFieldsInfo(defs *types.Info, forType *TypeInfo) {
+
+func fixFieldsInfo(defs *types.Info, forType *TypeInfo) error {
 	for idx := range forType.Fields {
 		for key, value := range defs.Defs {
 			if key.Name == forType.Fields[idx].Kind {
 				if forType.Fields[idx].Package == "" {
 					log.Printf("%q DOESN'T have a package", forType.Fields[idx].Kind)
-					// must belong to some package
-					//forType.Fields[idx].Package = value.Pkg().Name()
 				}
 				underlyingValue := value.Type().Underlying()
-				//info.Kind = value.Name()
 				switch underType := underlyingValue.(type) {
 				case *types.Pointer:
 					underlyingPointer := underType.Elem().Underlying()
 					forType.Fields[idx].IsPointer = true
-					//info.IsPointer = true
 					switch underPtr := underlyingPointer.(type) {
-					default:
-						log.Printf("pointer lookup : don't know what to do with :%T %#v", underPtr, underPtr)
 					case *types.Struct:
 						forType.Fields[idx].IsStruct = true
 					case *types.Slice:
-						forType.Fields[idx].IsArray = true
+						if !forType.Fields[idx].IsArray {
+							forType.Fields[idx].IsArray = true
+						}
 					case *types.Interface:
-						forType.Fields[idx].IsInterface = true
+						if !forType.Fields[idx].IsInterface {
+							forType.Fields[idx].IsInterface = true
+						}
+					default:
+						log.Printf("Fixer [pointer]: %#v", underPtr)
 					}
 				case *types.Struct:
 					forType.Fields[idx].IsStruct = true
 				case *types.Slice:
-					forType.Fields[idx].IsArray = true
+					if !forType.Fields[idx].IsArray {
+						forType.Fields[idx].IsArray = true
+					}
 				case *types.Interface:
-					forType.Fields[idx].IsInterface = true
+					if !forType.Fields[idx].IsInterface {
+						forType.Fields[idx].IsInterface = true
+					}
 				case *types.Basic:
-					// TODO :
+					log.Printf("Fixer [basic]: %#v", underType)
 				case *types.Signature:
-					// TODO :
+					// ignore signatures
+					//log.Printf("Fixer [signature]: %#v", underType)
 				default:
-					log.Printf("lookup unknown %q -> exported %t; type %#v; package= %v; id=%q\n%T", value.Name(), value.Exported(), value.Type().Underlying(), value.Pkg(), value.Id(), underType)
+					log.Printf("Fixer [?]: %#v", underType)
 				}
+				break // found it, bail out
 			}
 		}
 	}
+	return nil
 }
 
 func readIdent(ident *ast.Ident, comment *ast.CommentGroup) (*FieldInfo, error) {
@@ -134,7 +142,7 @@ func readPointer(ptr *ast.StarExpr, comment *ast.CommentGroup) (*FieldInfo, erro
 	case *ast.StructType:
 		result.Kind = "struct (temporary)"
 	default:
-		log.Printf("UNHANDLED PTR CASE : %T", typedSpec)
+		//log.Printf("UNHANDLED PTR CASE : %T", typedSpec)
 	}
 	return &result, err
 }
@@ -225,7 +233,7 @@ func readField(pkg *types.Package, field *ast.Field, comment *ast.CommentGroup) 
 	case *ast.MapType:
 		oneResult.IsMap = true
 		oneResult.Kind = "map (temporary)"
-		log.Printf("%q is map", oneResult.Name)
+		//log.Printf("%q is map", oneResult.Name)
 	case *ast.ChanType:
 		oneResult.IsChan = true
 		oneResult.Kind = "chan (temporary)"
@@ -252,7 +260,7 @@ func readField(pkg *types.Package, field *ast.Field, comment *ast.CommentGroup) 
 		oneResult.IsInterface = true
 		oneResult.Kind = "interface"
 	default:
-		log.Printf("UNHANDLED FIELD CASE : %T", typedSpec)
+		//log.Printf("UNHANDLED FIELD CASE : %T", typedSpec)
 	}
 
 	if field.Tag != nil {
@@ -310,8 +318,22 @@ func readType(pkg *types.Package, astSpec *ast.TypeSpec, comment *ast.CommentGro
 				result.Fields = append(result.Fields, fieldInfo...)
 			}
 		}
+	case *ast.FuncType:
+		result.Name = result.Kind
+		paramsInfo, resultsInfo, err := readFunc(typedSpec)
+		if err == nil {
+			result.MethodList = append(result.MethodList, FunctionInfo{
+				Package:     pkg.Name(),
+				PackagePath: pkg.Path(),
+				Name:        "func",
+				Params:      paramsInfo,
+				Returns:     resultsInfo,
+				comment:     comment,
+				//IsExported:  ???,
+			})
+		}
 	default:
-		log.Printf("UNHANDLED TYPE CASE : %T", typedSpec)
+		//log.Printf("UNHANDLED TYPE CASE : %T", typedSpec)
 	}
 	return &result, err
 }
@@ -360,7 +382,7 @@ func readElemType(arr *ast.ArrayType) (*TypeInfo, error) {
 	case *ast.ChanType:
 		result.Kind = "chan (temporary)"
 	default:
-		log.Printf("UNHANDLED ELEM CASE : %T", elType)
+		//log.Printf("UNHANDLED ELEM CASE : %T", elType)
 	}
 	return &result, err
 }
@@ -374,10 +396,10 @@ func readFunc(spec *ast.FuncType) ([]VarInfo, []VarInfo, error) {
 		for _, p := range spec.Params.List {
 			param := buildVarFromExpr(p)
 			if param.Kind == "" && param.Name == "" {
-				log.Printf("noname/notype found while inspecting %#v", spec)
+				log.Printf("noname/notype found while inspecting params of %#v", spec.Params.List)
 				continue
 			}
-			params = append(params, param) // TODO : did you knew that you can tag a function ? type s struct { f func(interface{}, uintptr) `tag:""` } ??
+			params = append(params, param)
 		}
 	}
 	var returns []VarInfo
@@ -385,7 +407,7 @@ func readFunc(spec *ast.FuncType) ([]VarInfo, []VarInfo, error) {
 		for _, r := range spec.Results.List {
 			param := buildVarFromExpr(r)
 			if param.Kind == "" && param.Name == "" {
-				log.Printf("noname/notype found while inspecting %#v", spec)
+				log.Printf("noname/notype found while inspecting returns of %#v", spec.Results.List)
 				continue
 			}
 			returns = append(returns, param)
@@ -417,7 +439,7 @@ func readFuncDecl(spec *ast.FuncDecl) (*FunctionInfo, error) {
 				info.IsMethodReceiver = true
 				info.ReceiverType = recType.X.(*ast.Ident).Name
 			default:
-				log.Printf("don't know what to do with receiver : %T %#v", recType, recType)
+				//log.Printf("don't know what to do with receiver : %T %#v", recType, recType)
 			}
 		}
 	}
@@ -448,7 +470,7 @@ func buildVarFromExpr(field *ast.Field) VarInfo {
 	case *ast.SelectorExpr:
 		fieldInfo, err := readSelector(paramType, nil)
 		if err == nil {
-			param.Kind = fieldInfo.Kind // TODO : check how it looks
+			param.Kind = fieldInfo.Kind // TODO : check
 		}
 	case *ast.ArrayType:
 		typeInfo, err := readElemType(paramType)
@@ -457,6 +479,10 @@ func buildVarFromExpr(field *ast.Field) VarInfo {
 		}
 	case *ast.InterfaceType:
 		param.Kind = "interface"
+	case *ast.FuncType:
+		param.Kind = "function"
+	case *ast.MapType:
+		param.Kind = "map"
 	default:
 		log.Printf("UNHANDLED PARAM/RETURN CASE : %T", paramType)
 	}

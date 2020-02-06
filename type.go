@@ -2,24 +2,37 @@ package stroo
 
 import (
 	"go/ast"
+	"go/types"
 )
 
 type TypeInfo struct {
 	Package     string
 	PackagePath string
-	Name        string // in struct's case Name == Kind
+	Name        string // in case of struct or func type declaration Name == Kind
 	Kind        string // usually the way we Extract
 	IsArray     bool   // if it's not array, it's struct
 	IsPointer   bool   // if array, it's pointer
-	IsImported  bool   // if array, it's pointer
-	IsAlias     bool   // if array, it's pointer
+	IsImported  bool   // if kind it's an imported one
+	IsAlias     bool   // if it's alias
+	IsFunc      bool   // if it's a function type definition
 	Fields      Fields
 	MethodList  Methods
 	comment     *ast.CommentGroup
-	root        *Code // reference to the root document - to allow access to methods
 }
 
-func (t *TypeInfo) Root() *Code { return t.root }
+func NewAliasFromField(pkg *types.Package, field *FieldInfo, name string) *TypeInfo {
+	return &TypeInfo{
+		Package:     pkg.Name(),
+		PackagePath: pkg.Path(),
+		Name:        name,
+		Kind:        field.Kind,
+		IsArray:     field.IsArray,
+		IsPointer:   field.IsPointer,
+		IsImported:  field.IsImported,
+		IsAlias:     true,
+	}
+}
+
 func (t *TypeInfo) IsBasic() bool {
 	return IsBasic(t.Kind)
 }

@@ -340,14 +340,13 @@ func strooHandler(command *Command) http.HandlerFunc {
 				tempCommand.SelectedType = firstTypeName
 			}
 			// create code
-			cachedResult, err = New(tempCommand.Result, tempCommand.CodeConfig, nil, firstTypeName)
+			cachedResult, err = New(tempCommand.Result, tempCommand.CodeConfig, firstTypeName, tmpTemplate)
 			if err != nil {
 				respond(w, MalformedRequest{ErrorMessage: err.Error()})
 				return
 			}
 		}
-		// set the template to the result (might have been changed)
-		cachedResult.tmpl = tmpTemplate
+
 		cachedResult.ResetKeeper() // reset kept data (so we can refill it)
 
 		// finally, we're processing the template over the result

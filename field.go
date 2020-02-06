@@ -25,7 +25,6 @@ type FieldInfo struct {
 	FuncData    *FunctionInfo
 	Prefix      string
 	Comment     *ast.CommentGroup
-	root        *Code // reference to the root document - to allow access to methods
 }
 
 func (f *FieldInfo) Clone(newName string) FieldInfo {
@@ -55,7 +54,7 @@ func (f *FieldInfo) SetPrefix(prefix string) error {
 	f.Prefix = prefix
 	return nil
 }
-func (f *FieldInfo) Root() *Code { return f.root }
+
 func (f *FieldInfo) StructOrArrayString() string {
 	if f.IsArray {
 		return "array"

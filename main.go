@@ -3,6 +3,7 @@ package stroo
 import (
 	"bytes"
 	"fmt"
+	"github.com/badu/stroo/halp"
 	"go/ast"
 	"go/format"
 	"go/token"
@@ -129,7 +130,7 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 	}
 	result.LoadImports(pass.Pkg.Imports())
 	result.TypesInfo = pass.TypesInfo // exposed just in case someone wants to get wild
-	log.Printf("Package info: %q path %q", pass.Pkg.Name(), pass.Pkg.Path())
+	//log.Printf("Package info: %q path %q", pass.Pkg.Name(), pass.Pkg.Path())
 	var discoveredFuncs Methods
 
 	inspResult.Preorder(nodeFilter, func(node ast.Node) {
@@ -160,6 +161,7 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 							result.Types = append(result.Types, typeInfo)
 							result.Interfaces = append(result.Interfaces, typeInfo)
 						} else {
+							err = infoErr
 							log.Printf("error reading interface : %v", infoErr)
 						}
 					case *ast.ArrayType:
@@ -168,64 +170,68 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 						if infoErr == nil {
 							result.Types = append(result.Types, typeInfo)
 						} else {
+							err = infoErr
 							log.Printf("error reading array : %v", infoErr)
 						}
 					case *ast.StructType:
 						// e.g. `type Stru struct {}`
 						typeInfo, infoErr := readType(pass.Pkg, typeSpec, nodeType.Doc)
 						if infoErr == nil {
-							fixFieldsInfo(result.TypesInfo, typeInfo)
-							result.Types = append(result.Types, typeInfo)
+							if fixErr := fixFieldsInfo(result.TypesInfo, typeInfo); fixErr == nil {
+								result.Types = append(result.Types, typeInfo)
+							} else {
+								err = fixErr
+								log.Printf("error fixing struct : %v", fixErr)
+							}
 						} else {
+							err = infoErr
 							log.Printf("error reading struct : %v", infoErr)
 						}
 					case *ast.Ident:
 						// e.g. : `type String string`
 						fieldInfo, infoErr := readIdent(typedType, nodeType.Doc)
 						if infoErr == nil {
-							typeInfo := &TypeInfo{}
-							typeInfo.Package = pass.Pkg.Name()
-							typeInfo.PackagePath = pass.Pkg.Path()
-							typeInfo.Kind = fieldInfo.Kind
-							typeInfo.Name = typeSpec.Name.Name
-							typeInfo.IsAlias = true
-							typeInfo.IsImported = fieldInfo.IsImported
-							typeInfo.IsPointer = fieldInfo.IsPointer
+							typeInfo := NewAliasFromField(pass.Pkg, fieldInfo, typeSpec.Name.Name)
 							result.Types = append(result.Types, typeInfo)
 						} else {
+							err = infoErr
 							log.Printf("error reading ident : %v", infoErr)
 						}
 					case *ast.SelectorExpr:
 						// e.g. : `type Timer time.Ticker`
 						fieldInfo, infoErr := readSelector(typedType, nodeType.Doc)
 						if infoErr == nil {
-							typeInfo := &TypeInfo{}
-							typeInfo.Package = pass.Pkg.Name()
-							typeInfo.PackagePath = pass.Pkg.Path()
-							typeInfo.Kind = fieldInfo.Kind
-							typeInfo.Name = typeSpec.Name.Name
-							typeInfo.IsAlias = true
-							typeInfo.IsImported = fieldInfo.IsImported
-							typeInfo.IsPointer = fieldInfo.IsPointer
+							typeInfo := NewAliasFromField(pass.Pkg, fieldInfo, typeSpec.Name.Name)
 							result.Types = append(result.Types, typeInfo)
 						} else {
+							err = infoErr
 							log.Printf("error reading selector : %v", infoErr)
 						}
 					case *ast.StarExpr:
 						// e.g. : `type Timer *time.Ticker`
 						fieldInfo, infoErr := readPointer(typedType, nodeType.Doc)
 						if infoErr == nil {
-							typeInfo := &TypeInfo{}
-							typeInfo.Package = pass.Pkg.Name()
-							typeInfo.PackagePath = pass.Pkg.Path()
-							typeInfo.Kind = fieldInfo.Kind
-							typeInfo.Name = typeSpec.Name.Name
-							typeInfo.IsAlias = true
-							typeInfo.IsImported = fieldInfo.IsImported
-							typeInfo.IsPointer = fieldInfo.IsPointer
+							typeInfo := NewAliasFromField(pass.Pkg, fieldInfo, typeSpec.Name.Name)
 							result.Types = append(result.Types, typeInfo)
 						} else {
+							err = infoErr
 							log.Printf("error reading pointer : %v", infoErr)
+						}
+					case *ast.FuncType:
+						// e.g. `type encoderFunc func(e *encodeState, v reflect.Value, opts encOpts)`
+						// convention, the type will have the first method describing the params and returns
+						typeInfo, infoErr := readType(pass.Pkg, typeSpec, nodeType.Doc)
+						if infoErr == nil {
+							if fixErr := fixFieldsInfo(result.TypesInfo, typeInfo); fixErr == nil {
+								typeInfo.IsFunc = true
+								result.Types = append(result.Types, typeInfo)
+							} else {
+								err = fixErr
+								log.Printf("error fixing func type : %v", fixErr)
+							}
+						} else {
+							err = infoErr
+							log.Printf("error reading func type : %v", infoErr)
 						}
 					default:
 						log.Printf("have you modified the filter ? Unhandled : %#v\n", typedType)
@@ -241,11 +247,14 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 								if results, infoErr := readValue(def, vl); infoErr == nil {
 									result.Vars = append(result.Vars, results...)
 								} else {
+									err = infoErr
 									log.Printf("error reading variable/constant : %v", infoErr)
 								}
 							} else {
 								log.Printf("%q was not found ", vl.Names[0])
 							}
+						} else {
+							log.Printf("error : node with no names - %#v", nodeType)
 						}
 					}
 				}
@@ -294,8 +303,7 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 				break
 			}
 		}
-
-		log.Printf("don't know what to do with function %#v", fn)
+		//log.Printf("don't know what to do with function %#v", fn)
 	}
 
 	// fix variable types
@@ -308,6 +316,45 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 			if varType.Name == result.Vars[idx].Kind {
 				result.Vars[idx].Type = varType
 				break
+			}
+		}
+	}
+
+	// fix function type declarations
+	for idx := range result.Types {
+		// skip types which are not function declarations
+		if !result.Types[idx].IsFunc {
+			continue
+		}
+		// skip invalid func declarations
+		if len(result.Types[idx].MethodList) != 1 {
+			log.Printf("error : func type decl should have exactly one method")
+			continue
+		}
+
+		for paramIdx := range result.Types[idx].MethodList[0].Params {
+			for _, varType := range result.Types {
+				if varType.Kind == result.Types[idx].MethodList[0].Params[paramIdx].Kind {
+					result.Types[idx].MethodList[0].Params[paramIdx].Type = varType
+					break
+				}
+				if varType.Name == result.Types[idx].MethodList[0].Params[paramIdx].Kind {
+					result.Types[idx].MethodList[0].Params[paramIdx].Type = varType
+					break
+				}
+			}
+		}
+
+		for returnIdx := range result.Types[idx].MethodList[0].Returns {
+			for _, varType := range result.Types {
+				if varType.Kind == result.Types[idx].MethodList[0].Returns[returnIdx].Kind {
+					result.Types[idx].MethodList[0].Returns[returnIdx].Type = varType
+					break
+				}
+				if varType.Name == result.Types[idx].MethodList[0].Returns[returnIdx].Kind {
+					result.Types[idx].MethodList[0].Returns[returnIdx].Type = varType
+					break
+				}
 			}
 		}
 	}
@@ -356,7 +403,7 @@ func (c *Command) Analyse(analyzer *analysis.Analyzer, loadedPackage *packages.P
 	}
 	typedResult, ok := result.result.(*PackageInfo)
 	if !ok {
-		return fmt.Errorf("error : interface not *PackageInfo")
+		return fmt.Errorf("error : result interface not *PackageInfo")
 	}
 	c.Result = typedResult
 	return nil
@@ -462,6 +509,7 @@ func SortFields(fields Fields) bool {
 	sort.Sort(fields)
 	return true
 }
+
 func DefaultFuncMap() template.FuncMap {
 	return template.FuncMap{
 		//"toJsonName":    swag.ToJSONName, // TODO : import all, but make it field functionality
@@ -475,12 +523,71 @@ func DefaultFuncMap() template.FuncMap {
 		"trim":          strings.TrimSpace,
 		"hasPrefix":     strings.HasPrefix,
 		"sort":          SortFields, // allows fields sorting (tested in Stringer)
-		"dump": func(a ...interface{}) string {
-			return ""
-			//return dbg_prn.SPrint(a...)
+		"dump": func(a interface{}) string {
+			return halp.SPrint(a)
 		},
 		"concat": func(a, b string) string {
 			return a + b
+		},
+		"hasNotGenerated": func(pkg, kind string) (bool, error) {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.HasNotGenerated(pkg, kind)
+		},
+		"recurseGenerate": func(pkg, kind string) error {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.RecurseGenerate(pkg, kind)
+		},
+		"structByKey": func(key string) (*TypeInfo, error) {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.StructByKey(key)
+		},
+		"implements": func(fieldInfo FieldInfo) (bool, error) {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.Implements(fieldInfo)
+		},
+		"store": func(key string, value interface{}) error {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.Store(key, value)
+		},
+		"retrieve": func(key string) (interface{}, error) {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.Retrieve(key)
+		},
+		"hasInStore": func(key string) bool {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.HasInStore(key)
+		},
+		"addToImports": func(imp string) string {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.AddToImports(imp)
+		},
+		"declare": func(name string) error {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.Declare(name)
+		},
+		"listStored": func() []string {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.ListStored()
 		},
 	}
 }
@@ -497,7 +604,7 @@ func (c *Command) NewCode() (*Code, error) {
 	if err != nil {
 		return nil, fmt.Errorf("template-parse-error : %v ; path = %q", err, templatePath)
 	}
-	return New(c.Result, c.CodeConfig, tmpl, c.SelectedType)
+	return New(c.Result, c.CodeConfig, c.SelectedType, tmpl)
 }
 
 // below is copy paste (with some modifications) from golang.org/x/tools/go/analysis/internal/checker,
