@@ -1,4 +1,6 @@
 # stroo
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fbadu%2Fstroo.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fbadu%2Fstroo?ref=badge_shield)
+
 
 Ever got tired of writing a `Stringer` implementation over and over again? Wanted to implement `Marshaler` and `Unmarshaler` for `json` package?
 
@@ -37,3 +39,6 @@ Yes, there is a playground to help you build templates. By default, the first `t
 ### Notes
 
 Developers can store and retrieve information inside a template : templates can store and retrieve key-values by using `{{ .Store <key> <value> }}` and retrieve them with `{{ .Retrieve <key> }}` where <key> is a `string` and <value> is `interface{}`.
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fbadu%2Fstroo.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fbadu%2Fstroo?ref=badge_large)
