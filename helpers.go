@@ -70,7 +70,14 @@ func Print(analyzer *analysis.Analyzer, withRunningFolder bool) string {
 }
 
 func IsBasic(kind string) bool {
-	for _, basic := range []string{"bool", "int", "int8", "int16", "int32", "rune", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64", "complex64", "complex128", "string"} {
+	for _, basic := range []string{
+		"unsafe.Pointer", "bool", "byte",
+		"complex64", "complex128",
+		"error",
+		"float32", "float64",
+		"int", "int8", "int16", "int32", "int64",
+		"rune", "string",
+		"uint", "uint8", "uint16", "uint32", "uint64", "uintptr"} {
 		if basic == kind {
 			return true
 		}

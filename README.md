@@ -22,10 +22,6 @@ type SomeJsonPayload struct{
 
 stroo will use the template (relative path in the example `json_marshal.tmpl` and `json_unmarshal.tmpl`) to generate the files indicated as output, in the same package with the struct declaration.
 
-This repository contains code taken (and modified) from [internal go tools](golang.org/x/tools/go/analysis/internal/checker) because the package is internal and cannot be imported. 
-
-Thank you good authors!
-
 ## Install
 
 As usual, install like any other Go tool.
@@ -36,4 +32,12 @@ Yes, there is a playground to help you build templates. By default, the first `t
 
 ### Notes
 
-Developers can store and retrieve information inside a template : templates can store and retrieve key-values by using `{{ .Store <key> <value> }}` and retrieve them with `{{ .Retrieve <key> }}` where <key> is a `string` and <value> is `interface{}`.
+Developers can store and retrieve information inside a template : templates can store and retrieve key-values by using `{{ store <key> <value> }}` and retrieve them with `{{ retrieve <key> }}` where <key> is a `string` and <value> is `interface{}`.
+
+This repository contains code taken (and modified) from [internal go tools](golang.org/x/tools/go/analysis/internal/checker) because the package is internal and cannot be imported. 
+
+Thank you good authors!
+
+### Wiki
+
+[Here](https://github.com/badu/stroo/wiki) is the wiki.

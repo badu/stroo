@@ -7,6 +7,7 @@ import (
 	"go/ast"
 	"go/format"
 	"go/token"
+	"go/types"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/ast/inspector"
 	"golang.org/x/tools/go/packages"
@@ -34,6 +35,7 @@ type CodeConfig struct {
 	DebugPrint       bool
 	Serve            bool
 	TemplateFile     string
+	TemplateName     string // keeps the name that template declares (e.g. {{ declare "String" }}) used in recurse generation and list stored
 	OutputFile       string
 	SelectedPeerType string
 }
@@ -589,6 +591,48 @@ func DefaultFuncMap() template.FuncMap {
 			}
 			return Root.ListStored()
 		},
+		"types": func() TypesSlice {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.PackageInfo.Types
+		},
+		"typesInfo": func() *types.Info {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.PackageInfo.TypesInfo
+		},
+		"interfaces": func() TypesSlice {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.PackageInfo.Interfaces
+		},
+		"functions": func() Methods {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.PackageInfo.Functions
+		},
+		"vars": func() Vars {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.PackageInfo.Vars
+		},
+		"imports": func() []string {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.Imports
+		},
+		"name": func() string {
+			if Root == nil {
+				panic("Root is nil")
+			}
+			return Root.PackageInfo.Name
+		},
 	}
 }
 
@@ -604,7 +648,7 @@ func (c *Command) NewCode() (*Code, error) {
 	if err != nil {
 		return nil, fmt.Errorf("template-parse-error : %v ; path = %q", err, templatePath)
 	}
-	return New(c.Result, c.CodeConfig, c.SelectedType, tmpl)
+	return New(c.Result, c.CodeConfig, tmpl)
 }
 
 // below is copy paste (with some modifications) from golang.org/x/tools/go/analysis/internal/checker,
