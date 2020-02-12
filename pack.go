@@ -32,7 +32,7 @@ func (pkg *PackageInfo) LoadImports(fromImports []*types.Package) {
 	}
 }
 
-func fixFieldsInfo(defs *types.Info, forType *TypeInfo) error {
+func fixFieldsInfo(defs *types.Info, forType TypeInfo) error {
 	for idx := range forType.Fields {
 		for key, value := range defs.Defs {
 			if key.Name == forType.Fields[idx].Kind {
@@ -83,9 +83,9 @@ func fixFieldsInfo(defs *types.Info, forType *TypeInfo) error {
 	return nil
 }
 
-func readIdent(ident *ast.Ident, comment *ast.CommentGroup) (*FieldInfo, error) {
+func readIdent(ident *ast.Ident, comment *ast.CommentGroup) (*TypeInfo, error) {
 	var (
-		result FieldInfo
+		result TypeInfo
 		err    error
 	)
 	if comment != nil {
@@ -93,15 +93,12 @@ func readIdent(ident *ast.Ident, comment *ast.CommentGroup) (*FieldInfo, error) 
 		result.Comment = comment
 	}
 	result.Kind = ident.Name
-	if IsBasic(ident.Name) {
-		result.IsBasic = true
-	}
 	return &result, err
 }
 
-func readPointer(ptr *ast.StarExpr, comment *ast.CommentGroup) (*FieldInfo, error) {
+func readPointer(ptr *ast.StarExpr, comment *ast.CommentGroup) (*TypeInfo, error) {
 	var (
-		result FieldInfo
+		result TypeInfo
 		err    error
 	)
 	if comment != nil {
@@ -114,13 +111,11 @@ func readPointer(ptr *ast.StarExpr, comment *ast.CommentGroup) (*FieldInfo, erro
 		fieldInfo, err := readIdent(typedSpec, nil)
 		if err == nil {
 			result.Kind = fieldInfo.Kind
-			result.IsBasic = fieldInfo.IsBasic
 		}
 	case *ast.SelectorExpr:
 		fieldInfo, err := readSelector(typedSpec, nil)
 		if err == nil {
 			result.Kind = fieldInfo.Kind
-			result.IsBasic = fieldInfo.IsBasic
 			result.IsImported = fieldInfo.IsImported
 			if fieldInfo.Package != "" {
 				result.Package = fieldInfo.Package
@@ -147,9 +142,9 @@ func readPointer(ptr *ast.StarExpr, comment *ast.CommentGroup) (*FieldInfo, erro
 	return &result, err
 }
 
-func readSelector(sel *ast.SelectorExpr, comment *ast.CommentGroup) (*FieldInfo, error) {
+func readSelector(sel *ast.SelectorExpr, comment *ast.CommentGroup) (*TypeInfo, error) {
 	var (
-		result FieldInfo
+		result TypeInfo
 		err    error
 	)
 	if comment != nil {
@@ -164,7 +159,6 @@ func readSelector(sel *ast.SelectorExpr, comment *ast.CommentGroup) (*FieldInfo,
 			fieldInfo, err := readIdent(idt, nil)
 			if err == nil {
 				result.Kind = fieldInfo.Kind + "." + result.Kind
-				result.IsBasic = fieldInfo.IsBasic
 			}
 		} else {
 			log.Printf("BAD SELECTOR [NOT IDENT] : %#v", sel)
@@ -175,9 +169,9 @@ func readSelector(sel *ast.SelectorExpr, comment *ast.CommentGroup) (*FieldInfo,
 	return &result, err
 }
 
-func readField(pkg *types.Package, field *ast.Field, comment *ast.CommentGroup) ([]FieldInfo, error) {
+func readField(pkg *types.Package, field *ast.Field, comment *ast.CommentGroup) (TypesSlice, error) {
 	var (
-		oneResult  FieldInfo
+		oneResult  TypeInfo
 		err        error
 		fieldNames []string
 	)
@@ -209,14 +203,12 @@ func readField(pkg *types.Package, field *ast.Field, comment *ast.CommentGroup) 
 		fieldInfo, err := readIdent(typedSpec, nil)
 		if err == nil {
 			oneResult.Kind = fieldInfo.Kind
-			oneResult.IsBasic = fieldInfo.IsBasic
 		}
 	case *ast.StarExpr:
 		fieldInfo, err := readPointer(typedSpec, nil)
 		if err == nil {
 			oneResult.IsPointer = fieldInfo.IsPointer
 			oneResult.Kind = fieldInfo.Kind
-			oneResult.IsBasic = fieldInfo.IsBasic
 			oneResult.IsImported = fieldInfo.IsImported
 		}
 	case *ast.SelectorExpr:
@@ -227,7 +219,6 @@ func readField(pkg *types.Package, field *ast.Field, comment *ast.CommentGroup) 
 			if fieldInfo.Package != "" {
 				oneResult.Package = fieldInfo.Package
 			}
-			oneResult.IsBasic = fieldInfo.IsBasic
 			oneResult.IsImported = fieldInfo.IsImported
 		}
 	case *ast.MapType:
@@ -243,7 +234,6 @@ func readField(pkg *types.Package, field *ast.Field, comment *ast.CommentGroup) 
 		oneResult.IsArray = true
 		elemTypeInfo, err := readElemType(typedSpec)
 		if err == nil {
-			oneResult.IsBasic = IsBasic(elemTypeInfo.Kind)
 			oneResult.IsPointer = elemTypeInfo.IsPointer
 			oneResult.Kind = elemTypeInfo.Kind
 		}
@@ -253,9 +243,8 @@ func readField(pkg *types.Package, field *ast.Field, comment *ast.CommentGroup) 
 		//log.Printf("%q %s is func", oneResult.Name, oneResult.Kind)
 		params, returns, err := readFunc(typedSpec)
 		if err == nil {
-			oneResult.FuncData = &FunctionInfo{Params: params, Returns: returns}
+			oneResult.MethodList = append(oneResult.MethodList, FunctionInfo{Params: params, Returns: returns})
 		}
-
 	case *ast.InterfaceType:
 		oneResult.IsInterface = true
 		oneResult.Kind = "interface"
@@ -267,7 +256,7 @@ func readField(pkg *types.Package, field *ast.Field, comment *ast.CommentGroup) 
 		oneResult.Tags, err = ParseTags(field.Tag.Value)
 	}
 
-	result := make([]FieldInfo, 0)
+	result := make(TypesSlice, 0)
 	result = append(result, oneResult)
 	if len(fieldNames) > 0 {
 		for _, name := range fieldNames {
@@ -278,15 +267,15 @@ func readField(pkg *types.Package, field *ast.Field, comment *ast.CommentGroup) 
 	return result, err
 }
 
-func readType(pkg *types.Package, astSpec *ast.TypeSpec, comment *ast.CommentGroup) (*TypeInfo, error) {
+func readType(pkg *types.Package, astSpec *ast.TypeSpec, comment *ast.CommentGroup) (TypeInfo, error) {
 	var (
 		result TypeInfo
 		err    error
 	)
-	result.comment = comment
+	result.Comment = comment
 	if astSpec.Name == nil {
 		log.Printf("possible error : astSpec.Name is nil on %#v", astSpec)
-		return nil, errors.New("type name is nil")
+		return TypeInfo{}, errors.New("type name is nil")
 	}
 	result.Package = pkg.Name()
 	result.PackagePath = pkg.Path()
@@ -335,7 +324,7 @@ func readType(pkg *types.Package, astSpec *ast.TypeSpec, comment *ast.CommentGro
 	default:
 		//log.Printf("UNHANDLED TYPE CASE : %T", typedSpec)
 	}
-	return &result, err
+	return result, err
 }
 
 func readElemType(arr *ast.ArrayType) (*TypeInfo, error) {

@@ -11,12 +11,10 @@ import (
 
 type Code struct {
 	CodeConfig
-	Imports      []string
-	PackageInfo  *PackageInfo
-	keeper       map[string]interface{} // template authors keeps data in here, key-value, as they need
-	tmpl         *template.Template     // reference to template, so we don't pass it as parameter
-	templateName string                 // set by template, used in RecurseGenerate and ListStored
-	Main         *TypeInfo              // not nil if we're working with a preselected type
+	Imports     []string
+	PackageInfo *PackageInfo
+	keeper      map[string]interface{} // template authors keeps data in here, key-value, as they need
+	tmpl        *template.Template     // reference to template, so we don't pass it as parameter
 }
 
 var Root *Code
@@ -24,7 +22,6 @@ var Root *Code
 func New(
 	info *PackageInfo,
 	config CodeConfig,
-	selectedType string,
 	tmpl *template.Template,
 ) (*Code, error) {
 	result := &Code{
@@ -40,14 +37,6 @@ func New(
 	if tmpl != nil {
 		result.tmpl = tmpl
 	}
-	// we were provided with a preselected type
-	if selectedType != "" {
-		var err error
-		result.Main, err = result.StructByKey(selectedType)
-		if err != nil {
-			return nil, err
-		}
-	}
 	Root = result // set global, there is no other way to make template aware of the "common"
 	return result, nil
 }
@@ -60,7 +49,7 @@ func (c *Code) Serve() bool                    { return c.CodeConfig.Serve }
 func (c *Code) TemplateFile() string           { return c.CodeConfig.TemplateFile }
 func (c *Code) OutputFile() string             { return c.CodeConfig.OutputFile }
 func (c *Code) SelectedPeerType() string       { return c.CodeConfig.SelectedPeerType }
-func (c *Code) Tmpl() *template.Template       { return c.tmpl } // TODO temporary - can't really say what's the usage
+func (c *Code) Tmpl() *template.Template       { return c.tmpl } // can't really say what's the usage, but we're open
 func (c *Code) Keeper() map[string]interface{} { return c.keeper }
 func (c *Code) ResetKeeper()                   { c.keeper = make(map[string]interface{}) }
 func (c *Code) PackageName() string            { return c.PackageInfo.Name }
@@ -118,8 +107,8 @@ func (c *Code) AddToImports(imp string) string {
 }
 
 // check if a kind has a method called the same as the template being declared
-func (c *Code) Implements(fieldInfo FieldInfo) (bool, error) {
-	if c.templateName == "" {
+func (c *Code) Implements(fieldInfo TypeInfo) (bool, error) {
+	if c.CodeConfig.TemplateName == "" {
 		return false, errors.New("you haven't called Declare(methodName) to allow replacing existing generated code")
 	}
 	if fieldInfo.Package == "" {
@@ -156,14 +145,11 @@ func (c *Code) Declare(name string) error {
 		//log.Printf("error : cannot declare empty template name (e.g.`String` for Stringer interface implementation)")
 		return errors.New("error : cannot declare empty template name (e.g.`String` for Stringer interface implementation)")
 	}
-	c.templateName = name
-	// if Main type was not selected, there is no point in setting it into keeper (dev might intended to work with interfaces)
-	if c.Main != nil {
-		if c.Main.Kind == "" {
-			return errors.New("error : main kind is empty")
-		}
-		c.keeper[name+c.Main.Kind] = "" // set it to empty in case of self reference, so template will exit
+	if c.CodeConfig.SelectedType == "" {
+		return errors.New("error : selected type is empty")
 	}
+	c.CodeConfig.TemplateName = name
+	c.keeper[name+c.CodeConfig.SelectedType] = "" // set it to empty in case of self reference, so template will exit
 	return nil
 }
 
@@ -172,7 +158,7 @@ func (c *Code) HasNotGenerated(pkg, kind string) (bool, error) {
 	if c == nil {
 		return false, errors.New("impossible : code was not passed here (.Root missing ???)")
 	}
-	if c.templateName == "" {
+	if c.CodeConfig.TemplateName == "" {
 		//log.Printf("you haven't called Declare(methodName) to allow replacing existing generated code")
 		return false, errors.New("you haven't called Declare(methodName) to allow replacing existing generated code")
 	}
@@ -202,7 +188,7 @@ func (c *Code) HasNotGenerated(pkg, kind string) (bool, error) {
 		return false, nil
 	}
 	// finally we deliver result
-	entity := c.templateName + kind
+	entity := c.CodeConfig.TemplateName + kind
 	_, has := c.keeper[entity]
 	//log.Printf("HasNotGenerated : %q %t", entity, has)
 	return !has, nil
@@ -211,7 +197,7 @@ func (c *Code) HasNotGenerated(pkg, kind string) (bool, error) {
 // uses the template name to apply the template recursively
 // it's useful for replacing the code in existing generated files
 func (c *Code) RecurseGenerate(pkg, kind string) error {
-	if c.templateName == "" {
+	if c.CodeConfig.TemplateName == "" {
 		return errors.New("you haven't called Declare(methodName) to allow replacing existing generated code")
 	}
 	if pkg == "" {
@@ -222,9 +208,9 @@ func (c *Code) RecurseGenerate(pkg, kind string) error {
 		log.Printf("RecurseGenerate : different packages %q != %q", pkg, c.PackageInfo.Name)
 		return nil
 	}
-	entity := c.templateName + kind
+	entity := c.CodeConfig.TemplateName + kind
 	if c.CodeConfig.DebugPrint {
-		log.Printf("RecurseGenerate : processing %q %q ", c.templateName, kind)
+		log.Printf("RecurseGenerate : processing %q %q ", c.CodeConfig.TemplateName, kind)
 	}
 	// already has it
 	if _, has := c.keeper[entity]; has {
@@ -254,7 +240,7 @@ func (c *Code) RecurseGenerate(pkg, kind string) error {
 	//log.Printf("RecurseGenerate : %q for kind %q generating in package %q", entity, nt.Kind, pkg)
 	var buf strings.Builder
 	c.keeper[entity] = "" // mark it empty
-	err = c.tmpl.ExecuteTemplate(&buf, c.templateName, nt)
+	err = c.tmpl.ExecuteTemplate(&buf, c.CodeConfig.TemplateName, nt)
 	if err != nil {
 		c.keeper[entity] = "//" + err.Error() // put a comment with that error
 		log.Printf("RecurseGenerate template error : %v", err)
@@ -269,7 +255,7 @@ func (c *Code) RecurseGenerate(pkg, kind string) error {
 func (c *Code) ListStored() []string {
 	var result []string
 	for key, value := range c.keeper {
-		if strings.HasPrefix(key, c.templateName) {
+		if strings.HasPrefix(key, c.CodeConfig.TemplateName) {
 			if r, ok := value.(string); ok {
 				// len(0) is default template for main (
 				if len(r) > 0 {
@@ -278,7 +264,7 @@ func (c *Code) ListStored() []string {
 			} else {
 				// if it's not a string, we're ignoring it
 				if c.CodeConfig.DebugPrint {
-					log.Printf("%q has prefix %q but it's not a string and we're ignoring it", key, c.templateName)
+					log.Printf("%q has prefix %q but it's not a string and we're ignoring it", key, c.CodeConfig.TemplateName)
 				}
 			}
 		}

@@ -2,10 +2,10 @@
 {{- addToImports "strconv" }}{{/* knowing that we're going to use this packges */}}
 {{- addToImports "fmt" }}{{/* we're adding them to imports */}}
 {{- addToImports "strings" -}}
-package {{.PackageName}}
-{{ if .Imports }}
+package {{ name }}
+{{ if imports }}
 import (
-	{{range .Imports -}}
+	{{range imports -}}
 	"{{ . }}"
 	{{end -}}
 )

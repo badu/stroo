@@ -338,9 +338,10 @@ func strooHandler(command *Command) http.HandlerFunc {
 			if len(tempCommand.Result.Types) >= 1 {
 				firstTypeName = tempCommand.Result.Types[0].Kind
 				tempCommand.SelectedType = firstTypeName
+				tempCommand.CodeConfig.SelectedType = firstTypeName
 			}
 			// create code
-			cachedResult, err = New(tempCommand.Result, tempCommand.CodeConfig, firstTypeName, tmpTemplate)
+			cachedResult, err = New(tempCommand.Result, tempCommand.CodeConfig, tmpTemplate)
 			if err != nil {
 				respond(w, MalformedRequest{ErrorMessage: err.Error()})
 				return
@@ -374,7 +375,7 @@ func strooHandler(command *Command) http.HandlerFunc {
 }
 
 func StartPlayground(command *Command) {
-	log.Printf("Starting on http://localhost:8080\n")
+	log.Printf("Starting on http://0.0.0.0:8080\n")
 	wd, err := os.Getwd()
 	if err != nil {
 		log.Fatalf("could NOT obtain current workdir : %v", err)
