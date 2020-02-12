@@ -84,3 +84,39 @@ func IsBasic(kind string) bool {
 	}
 	return false
 }
+
+func IsComplex(kind string) bool {
+	for _, basic := range []string{"complex64", "complex128"} {
+		if basic == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func IsFloat(kind string) bool {
+	for _, basic := range []string{"float32", "float64"} {
+		if basic == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func IsInt(kind string) bool {
+	for _, basic := range []string{"int", "int8", "int16", "int32", "int64"} {
+		if basic == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func IsUint(kind string) bool {
+	for _, basic := range []string{"uint", "uint8", "uint16", "uint32", "uint64", "uintptr"} {
+		if basic == kind {
+			return true
+		}
+	}
+	return false
+}

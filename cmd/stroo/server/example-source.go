@@ -6,6 +6,9 @@ import (
 
 type TestData struct {
 	// basic fields
+	StringField                  string                  `json:"string_value"`
+	StringPtr                    *string                 `json:"a_StringPtr"`
+	StructField                  NormalStruct            `json:"-"` // normal struct
 	Bool                         bool                    `json:"boolean_value"`
 	BoolPtr                      *bool                   `json:"a_BoolPtr"`
 	Int                          int                     `json:"int_value"`
@@ -32,9 +35,6 @@ type TestData struct {
 	Float32Ptr                   *float32                `json:"a_Float32Ptr"`
 	Float64                      float64                 `json:"float64_value"`
 	Float64Ptr                   *float64                `json:"a_Float64Ptr"`
-	StringField                  string                  `json:"string_value"`
-	StringPtr                    *string                 `json:"a_StringPtr"`
-	StructField                  NormalStruct            `json:"-"`                       // normal struct
 	TimeField                    time.Time               `json:"purchaseDate"`            // time field
 	PtrTimeField                 *time.Time              `json:"emptyTime"`               // pointer to time
 	SliceOfPointersField         SliceOfPointers         `json:"items"`                   // normal slice

@@ -107,7 +107,7 @@ func (c *Code) AddToImports(imp string) string {
 }
 
 // check if a kind has a method called the same as the template being declared
-func (c *Code) Implements(fieldInfo FieldInfo) (bool, error) {
+func (c *Code) Implements(fieldInfo TypeInfo) (bool, error) {
 	if c.CodeConfig.TemplateName == "" {
 		return false, errors.New("you haven't called Declare(methodName) to allow replacing existing generated code")
 	}

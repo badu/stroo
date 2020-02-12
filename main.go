@@ -3,14 +3,10 @@ package stroo
 import (
 	"bytes"
 	"fmt"
-	"github.com/badu/stroo/halp"
 	"go/ast"
 	"go/format"
 	"go/token"
 	"go/types"
-	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/go/ast/inspector"
-	"golang.org/x/tools/go/packages"
 	"log"
 	"os"
 	"path/filepath"
@@ -22,6 +18,12 @@ import (
 	"text/template"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/Masterminds/sprig"
+	"github.com/badu/stroo/halp"
+	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/ast/inspector"
+	"golang.org/x/tools/go/packages"
 )
 
 const (
@@ -270,11 +272,11 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 		for idx := range fn.Params {
 			for _, varType := range result.Types {
 				if varType.Kind == result.Vars[idx].Kind {
-					result.Vars[idx].Type = varType
+					result.Vars[idx].Type = &varType
 					break
 				}
 				if varType.Name == result.Vars[idx].Kind {
-					result.Vars[idx].Type = varType
+					result.Vars[idx].Type = &varType
 					break
 				}
 			}
@@ -283,11 +285,11 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 		for idx := range fn.Returns {
 			for _, varType := range result.Types {
 				if varType.Kind == result.Vars[idx].Kind {
-					result.Vars[idx].Type = varType
+					result.Vars[idx].Type = &varType
 					break
 				}
 				if varType.Name == result.Vars[idx].Kind {
-					result.Vars[idx].Type = varType
+					result.Vars[idx].Type = &varType
 					break
 				}
 			}
@@ -312,11 +314,11 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 	for idx := range result.Vars {
 		for _, varType := range result.Types {
 			if varType.Kind == result.Vars[idx].Kind {
-				result.Vars[idx].Type = varType
+				result.Vars[idx].Type = &varType
 				break
 			}
 			if varType.Name == result.Vars[idx].Kind {
-				result.Vars[idx].Type = varType
+				result.Vars[idx].Type = &varType
 				break
 			}
 		}
@@ -337,11 +339,11 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 		for paramIdx := range result.Types[idx].MethodList[0].Params {
 			for _, varType := range result.Types {
 				if varType.Kind == result.Types[idx].MethodList[0].Params[paramIdx].Kind {
-					result.Types[idx].MethodList[0].Params[paramIdx].Type = varType
+					result.Types[idx].MethodList[0].Params[paramIdx].Type = &varType
 					break
 				}
 				if varType.Name == result.Types[idx].MethodList[0].Params[paramIdx].Kind {
-					result.Types[idx].MethodList[0].Params[paramIdx].Type = varType
+					result.Types[idx].MethodList[0].Params[paramIdx].Type = &varType
 					break
 				}
 			}
@@ -350,11 +352,11 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 		for returnIdx := range result.Types[idx].MethodList[0].Returns {
 			for _, varType := range result.Types {
 				if varType.Kind == result.Types[idx].MethodList[0].Returns[returnIdx].Kind {
-					result.Types[idx].MethodList[0].Returns[returnIdx].Type = varType
+					result.Types[idx].MethodList[0].Returns[returnIdx].Type = &varType
 					break
 				}
 				if varType.Name == result.Types[idx].MethodList[0].Returns[returnIdx].Kind {
-					result.Types[idx].MethodList[0].Returns[returnIdx].Type = varType
+					result.Types[idx].MethodList[0].Returns[returnIdx].Type = &varType
 					break
 				}
 			}
@@ -432,7 +434,7 @@ func (c *Command) Generate(analyzer *analysis.Analyzer) error {
 		return fmt.Errorf("go/format error: %v\nGo source:\n%s", err, src)
 	}
 	c.Out.Write(formatted)
-	// if it's testmode, print and exit (same as playground, but in terminal)
+	// if it's `testmode`, print and exit (same as playground, but in terminal)
 	if c.TestMode {
 		return nil
 	}
@@ -460,13 +462,6 @@ func contains(args ...string) bool {
 		if args[i] == who {
 			return true
 		}
-	}
-	return false
-}
-
-func empty(src string) bool {
-	if src == "" {
-		return true
 	}
 	return false
 }
@@ -507,29 +502,27 @@ func isNil(value interface{}) bool {
 	return false
 }
 
-func SortFields(fields Fields) bool {
-	sort.Sort(fields)
-	return true
-}
-
 func DefaultFuncMap() template.FuncMap {
-	return template.FuncMap{
-		//"toJsonName":    swag.ToJSONName, // TODO : import all, but make it field functionality
+	result := template.FuncMap{
 		"in":            contains,
-		"empty":         empty,
 		"nil":           isNil,
 		"lowerInitial":  lowerInitial,
 		"capitalize":    capitalize,
 		"templateGoStr": templateGoStr,
-		"contains":      strings.Contains,
-		"trim":          strings.TrimSpace,
-		"hasPrefix":     strings.HasPrefix,
-		"sort":          SortFields, // allows fields sorting (tested in Stringer)
+		"sort": func(fields TypesSlice) error {
+			sort.Sort(fields)
+			return nil
+		}, // allows fields sorting (tested in Stringer)
+		"sortVars": func(vars Vars) error {
+			sort.Sort(vars)
+			return nil
+		}, // allows vars sorting (tested in Stringer)
+		"sortMeths": func(methods Methods) error {
+			sort.Sort(methods)
+			return nil
+		}, // allows vars sorting (tested in Stringer)
 		"dump": func(a interface{}) string {
 			return halp.SPrint(a)
-		},
-		"concat": func(a, b string) string {
-			return a + b
 		},
 		"hasNotGenerated": func(pkg, kind string) (bool, error) {
 			if Root == nil {
@@ -549,7 +542,7 @@ func DefaultFuncMap() template.FuncMap {
 			}
 			return Root.StructByKey(key)
 		},
-		"implements": func(fieldInfo FieldInfo) (bool, error) {
+		"implements": func(fieldInfo TypeInfo) (bool, error) {
 			if Root == nil {
 				panic("Root is nil")
 			}
@@ -634,6 +627,14 @@ func DefaultFuncMap() template.FuncMap {
 			return Root.PackageInfo.Name
 		},
 	}
+	for k, v := range sprig.TxtFuncMap() {
+		if _, has := result[k]; !has {
+			result[k] = v
+		} else {
+			log.Printf("%q function is already present in default template functions", k)
+		}
+	}
+	return result
 }
 
 func (c *Command) NewCode() (*Code, error) {
