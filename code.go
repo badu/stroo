@@ -58,8 +58,14 @@ func (c *Code) PackageName() string            { return c.PackageInfo.Name }
 func (c *Code) StructByKey(key string) (*TypeInfo, error) {
 	result := c.PackageInfo.Types.Extract(key)
 	if result == nil {
-		log.Printf("error looking for %q into types", key)
-		return nil, fmt.Errorf("error looking for %q into types", key)
+		if c.DebugPrint() {
+			log.Printf("error looking for %q into types", key)
+		}
+		knowntypes := ""
+		for _, t := range c.PackageInfo.Types {
+			knowntypes += "`" + t.Name + "` " + t.Kind + "\n"
+		}
+		return nil, fmt.Errorf("error looking for %q into known types :\n %s\n", key, knowntypes)
 	}
 	return result, nil
 }

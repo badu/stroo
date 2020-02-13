@@ -43,10 +43,12 @@ func fixFieldsInfo(defs *types.Info, forType TypeInfo) error {
 				switch underType := underlyingValue.(type) {
 				case *types.Pointer:
 					underlyingPointer := underType.Elem().Underlying()
-					forType.Fields[idx].IsPointer = true
+					if !forType.Fields[idx].IsPointer {
+						forType.Fields[idx].IsPointer = true
+					}
 					switch underPtr := underlyingPointer.(type) {
 					case *types.Struct:
-						forType.Fields[idx].IsStruct = true
+						forType.Fields[idx].IsStruct = true // this is mandatory
 					case *types.Slice:
 						if !forType.Fields[idx].IsArray {
 							forType.Fields[idx].IsArray = true
@@ -59,7 +61,7 @@ func fixFieldsInfo(defs *types.Info, forType TypeInfo) error {
 						log.Printf("Fixer [pointer]: %#v", underPtr)
 					}
 				case *types.Struct:
-					forType.Fields[idx].IsStruct = true
+					forType.Fields[idx].IsStruct = true // this is mandatory
 				case *types.Slice:
 					if !forType.Fields[idx].IsArray {
 						forType.Fields[idx].IsArray = true
@@ -69,7 +71,7 @@ func fixFieldsInfo(defs *types.Info, forType TypeInfo) error {
 						forType.Fields[idx].IsInterface = true
 					}
 				case *types.Basic:
-					log.Printf("Fixer [basic]: %#v", underType)
+					log.Printf("Fixer [basic]: %#v", underType) // this is never? the case ?
 				case *types.Signature:
 					// ignore signatures
 					//log.Printf("Fixer [signature]: %#v", underType)

@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	playgroundVersion = "0.0.2"
+	playgroundVersion = "0.0.3"
 
 	storageFolder = "/server"
 	assetsFolder  = "/assets/"

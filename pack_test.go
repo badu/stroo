@@ -134,8 +134,8 @@ var cases = []testCase{
 			PackagePath: testPackagePath,
 			Name:        "T15",
 			Kind:        "T15",
-			Fields: Fields{
-				FieldInfo{
+			Fields: TypesSlice{
+				TypeInfo{
 					PackagePath: testPackagePath,
 					Package:     testPackage,
 					Kind:        "EmbeddedS",
@@ -150,7 +150,7 @@ var cases = []testCase{
 						},
 					},
 				},
-				FieldInfo{
+				TypeInfo{
 					PackagePath: testPackagePath,
 					Package:     testPackage,
 					Kind:        "EmbeddedS2",
@@ -166,7 +166,7 @@ var cases = []testCase{
 						},
 					},
 				},
-				FieldInfo{
+				TypeInfo{
 					PackagePath: testPackagePath,
 					Package:     testPackage,
 					Kind:        "error",
@@ -181,32 +181,29 @@ var cases = []testCase{
 						},
 					},
 				},
-				FieldInfo{
+				TypeInfo{
 					PackagePath: testPackagePath,
 					Package:     testPackage,
 					Name:        "Name",
 					Kind:        "string",
-					IsBasic:     true,
 					IsExported:  true,
 					Tags: Tags{
 						&Tag{Key: "json", Name: "name"},
 					},
 				},
-				FieldInfo{
+				TypeInfo{
 					PackagePath: testPackagePath,
 					Package:     testPackage,
 					Name:        "PtrName",
 					Kind:        "string",
-					IsBasic:     true,
 					IsPointer:   true,
 					IsExported:  true,
 				},
-				FieldInfo{
+				TypeInfo{
 					PackagePath: testPackagePath,
 					Package:     testPackage,
 					Name:        "unexported",
 					Kind:        "string",
-					IsBasic:     true,
 				},
 			},
 		},
@@ -219,8 +216,8 @@ var cases = []testCase{
 			Kind:        "T16",
 			PackagePath: testPackagePath,
 			Package:     testPackage,
-			Fields: Fields{
-				FieldInfo{
+			Fields: TypesSlice{
+				TypeInfo{
 					PackagePath: testPackagePath,
 					Package:     testPackage,
 					Name:        "S",
@@ -228,7 +225,7 @@ var cases = []testCase{
 					IsExported:  true,
 					IsStruct:    true,
 				},
-				FieldInfo{
+				TypeInfo{
 					PackagePath: testPackagePath,
 					Package:     testPackage,
 					Name:        "Itemz",
@@ -239,7 +236,7 @@ var cases = []testCase{
 					},
 					IsArray: true,
 				},
-				FieldInfo{
+				TypeInfo{
 					PackagePath: testPackagePath,
 					Package:     testPackage,
 					Name:        "Pricez",
@@ -261,8 +258,8 @@ var cases = []testCase{
 			PackagePath: testPackagePath,
 			Name:        "T17",
 			Kind:        "T17",
-			Fields: Fields{
-				FieldInfo{
+			Fields: TypesSlice{
+				TypeInfo{
 					Package:     testPackage,
 					PackagePath: testPackagePath,
 					Kind:        "Items",
@@ -280,8 +277,8 @@ var cases = []testCase{
 			Kind:        "T18",
 			Package:     testPackage,
 			PackagePath: testPackagePath,
-			Fields: Fields{
-				FieldInfo{
+			Fields: TypesSlice{
+				TypeInfo{
 					Package:     testPackage,
 					PackagePath: testPackagePath,
 					Name:        "Child",
@@ -307,6 +304,14 @@ var cases = []testCase{
 			IsPointer:   true,
 			IsArray:     true,
 			IsImported:  true,
+			Comment: &ast.CommentGroup{
+				List: []*ast.Comment{
+					&ast.Comment{
+						Slash: 529859,
+						Text:  "// times comment @time.Time",
+					},
+				},
+			},
 		},
 	}, // 19 - type ExternalSliceOfPointers []*time.Time
 	{

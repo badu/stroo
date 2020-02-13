@@ -165,8 +165,8 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 							result.Types = append(result.Types, typeInfo)
 							result.Interfaces = append(result.Interfaces, typeInfo)
 						} else {
-							err = infoErr
 							log.Printf("error reading interface : %v", infoErr)
+							err = infoErr
 						}
 					case *ast.ArrayType:
 						// e.g. `type Array []string`
@@ -174,8 +174,8 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 						if infoErr == nil {
 							result.Types = append(result.Types, typeInfo)
 						} else {
-							err = infoErr
 							log.Printf("error reading array : %v", infoErr)
+							err = infoErr
 						}
 					case *ast.StructType:
 						// e.g. `type Stru struct {}`
@@ -184,12 +184,12 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 							if fixErr := fixFieldsInfo(result.TypesInfo, typeInfo); fixErr == nil {
 								result.Types = append(result.Types, typeInfo)
 							} else {
-								err = fixErr
 								log.Printf("error fixing struct : %v", fixErr)
+								err = fixErr
 							}
 						} else {
-							err = infoErr
 							log.Printf("error reading struct : %v", infoErr)
+							err = infoErr
 						}
 					case *ast.Ident:
 						// e.g. : `type String string`
@@ -198,8 +198,8 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 							typeInfo := NewAliasFromField(pass.Pkg, fieldInfo, typeSpec.Name.Name)
 							result.Types = append(result.Types, typeInfo)
 						} else {
-							err = infoErr
 							log.Printf("error reading ident : %v", infoErr)
+							err = infoErr
 						}
 					case *ast.SelectorExpr:
 						// e.g. : `type Timer time.Ticker`
@@ -208,8 +208,8 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 							typeInfo := NewAliasFromField(pass.Pkg, fieldInfo, typeSpec.Name.Name)
 							result.Types = append(result.Types, typeInfo)
 						} else {
-							err = infoErr
 							log.Printf("error reading selector : %v", infoErr)
+							err = infoErr
 						}
 					case *ast.StarExpr:
 						// e.g. : `type Timer *time.Ticker`
@@ -218,8 +218,8 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 							typeInfo := NewAliasFromField(pass.Pkg, fieldInfo, typeSpec.Name.Name)
 							result.Types = append(result.Types, typeInfo)
 						} else {
-							err = infoErr
 							log.Printf("error reading pointer : %v", infoErr)
+							err = infoErr
 						}
 					case *ast.FuncType:
 						// e.g. `type encoderFunc func(e *encodeState, v reflect.Value, opts encOpts)`
@@ -230,12 +230,12 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 								typeInfo.IsFunc = true
 								result.Types = append(result.Types, typeInfo)
 							} else {
-								err = fixErr
 								log.Printf("error fixing func type : %v", fixErr)
+								err = fixErr
 							}
 						} else {
-							err = infoErr
 							log.Printf("error reading func type : %v", infoErr)
+							err = infoErr
 						}
 					default:
 						log.Printf("have you modified the filter ? Unhandled : %#v\n", typedType)
@@ -251,8 +251,8 @@ func (c *Command) Run(pass *analysis.Pass) (interface{}, error) {
 								if results, infoErr := readValue(def, vl); infoErr == nil {
 									result.Vars = append(result.Vars, results...)
 								} else {
-									err = infoErr
 									log.Printf("error reading variable/constant : %v", infoErr)
+									err = infoErr
 								}
 							} else {
 								log.Printf("%q was not found ", vl.Names[0])
@@ -401,7 +401,6 @@ func (c *Command) Analyse(analyzer *analysis.Analyzer, loadedPackage *packages.P
 
 	result := mkAction(analyzer, loadedPackage)
 	result.exec()
-
 	if result.err != nil {
 		return result.err
 	}
@@ -414,10 +413,23 @@ func (c *Command) Analyse(analyzer *analysis.Analyzer, loadedPackage *packages.P
 }
 
 func (c *Command) Generate(analyzer *analysis.Analyzer) error {
-	result, err := c.NewCode()
+	templatePath, err := filepath.Abs(c.TemplateFile)
 	if err != nil {
-		return fmt.Errorf("error making code object : %v", err)
+		return err
 	}
+	if _, err := os.Stat(templatePath); os.IsNotExist(err) {
+		return fmt.Errorf("template-error : %v ; path = %q", err, templatePath)
+	}
+	tmpl, err := template.New(filepath.Base(templatePath)).Funcs(DefaultFuncMap()).ParseFiles(templatePath)
+	if err != nil {
+		return fmt.Errorf("template-parse-error : %v ; path = %q", err, templatePath)
+	}
+
+	result, err := New(c.Result, c.CodeConfig, tmpl)
+	if err != nil {
+		return fmt.Errorf("error-building-code : %v", err)
+	}
+	result.ResetKeeper()
 
 	var buf bytes.Buffer
 	if err := result.Tmpl().Execute(&buf, &result); err != nil {
@@ -635,21 +647,6 @@ func DefaultFuncMap() template.FuncMap {
 		}
 	}
 	return result
-}
-
-func (c *Command) NewCode() (*Code, error) {
-	templatePath, err := filepath.Abs(c.TemplateFile)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := os.Stat(templatePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("template-error : %v ; path = %q", err, templatePath)
-	}
-	tmpl, err := template.New(filepath.Base(templatePath)).Funcs(DefaultFuncMap()).ParseFiles(templatePath)
-	if err != nil {
-		return nil, fmt.Errorf("template-parse-error : %v ; path = %q", err, templatePath)
-	}
-	return New(c.Result, c.CodeConfig, tmpl)
 }
 
 // below is copy paste (with some modifications) from golang.org/x/tools/go/analysis/internal/checker,

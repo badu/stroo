@@ -13,5 +13,5 @@ require (
 	github.com/mitchellh/copystructure v1.0.0 // indirect
 	github.com/rakyll/statik v0.1.6
 	github.com/stretchr/testify v1.4.0 // indirect
-	golang.org/x/tools v0.0.0-20200204230316-67a4523381ef
+	golang.org/x/tools v0.0.0-20200213050514-49b8ac185c84
 )

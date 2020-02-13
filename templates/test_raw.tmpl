@@ -1,0 +1,19 @@
+{{ range $key, $value := .PackageInfo.TypesInfo.Defs }}
+	{{ $key.Name }} ->
+		{{ with $key.Obj }}
+			name = {{ $key.Obj.Name }}
+			kind = {{ $key.Obj.Kind }}
+		{{ else }}
+			Nil : {{ dump $key }}
+		{{ end }}
+	Value :
+	{{ with $value -}}
+		Pkg : `{{ $value.Pkg.Name }}` `{{ $value.Pkg.Path }}`
+		Name : `{{ $value.Name }}`
+		Type : {{ with $value.Type }} `{{ . }}` {{ end }}
+		Exported : {{ $value.Exported }}
+		Id = `{{$value.Id}}`
+	{{ else }}
+		Nil: {{ dump $value }}
+	{{- end }}
+{{ end }}

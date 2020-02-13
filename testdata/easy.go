@@ -72,7 +72,12 @@ type T18 struct {
 	Child *T18 `json:"ptr_child"`
 }
 
-//go:generate stroo -type=TestData -output=easy_json_gen.go -template=./../../templates/json_marshal.tmpl
+//go:generate stroo -testMode=true -type=SimpleTestData -output=easy_gen.go -template=./../templates/simple_example.tmpl
+type SimpleTestData struct {
+	Name  string
+	Phone string
+}
+
 type TestData struct {
 	// basic fields
 	Bool                         bool                           `json:"boolean_value"`

@@ -1,0 +1,26 @@
+{{ if declare "Print" }}{{ end }}{{/* pass kind of methods we're going to generate */}}
+
+{{/* the main template */}}
+{{ define "Print" }}
+	{{- with . }}
+        func (st {{ .Kind }}) Print() string {
+		var sb strings.Builder
+		{{ range .Fields -}}
+            {{ if .IsString -}}
+sb.WriteString("{{.Prefix}}{{.Name}}="+{{ if .IsPointer }}*{{ end }}st.{{.Prefix}}{{.Name}}+"\n")
+            {{ else }}{{/* a good practice to signal developers unhandled cases via TODO */}}
+                // TODO : unhandled field {{.Kind }}
+            {{ end }}
+		{{ end }}
+        return sb.String()
+        }
+	{{ end }}
+{{ end }}
+
+{{/* extract the selected type indicated by params */}}
+{{ $main := structByKey .SelectedType }}
+{{/* using with ensures that is not nil*/}}
+{{- with $main -}}
+	{{/* we apply the defined template */}}
+	{{ template "Print" . }}
+{{ end }}
