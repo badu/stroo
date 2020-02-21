@@ -1,5 +1,14 @@
 cmd/stroo/server/* linguist-vendored
 go.js linguist-vendored=false
+semantic-2.4.2.js linguist-vendored=false
+riotcompiler-4.8.7.js linguist-vendored=false
+matchbrackets.js linguist-vendored=false
+codemirror-5.51.0.js linguist-vendored=false
 jquery-3.4.1.js linguist-vendored=false
-*.css linguist-vendored=false
-*.html linguist-vendored=false
+semantic-2.4.2.css linguist-vendored=false
+codemirror-5.51.0.css linguist-vendored=false
+dracula-5.51.0.css linguist-vendored=false
+playground.html linguist-vendored=false
+index.html linguist-vendored=false
+codetextarea.html linguist-vendored=false
+example-template.tpl linguist-vendored=false
