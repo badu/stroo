@@ -1,4 +1,5 @@
 cmd/stroo/server/* linguist-vendored
-*.js linguist-vendored=false
+go.js linguist-vendored=false
+jquery-3.4.1.js linguist-vendored=false
 *.css linguist-vendored=false
 *.html linguist-vendored=false
