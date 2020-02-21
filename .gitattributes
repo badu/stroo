@@ -1,1 +1,1 @@
-cmd/stoo/server/* linguist-vendored
+*.go linguist-detectable
