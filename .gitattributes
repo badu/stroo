@@ -1,1 +1,4 @@
-*.go linguist-detectable
+cmd/stroo/server/* linguist-vendored
+*.js linguist-vendored=false
+*.css linguist-vendored=false
+*.html linguist-vendored=false
