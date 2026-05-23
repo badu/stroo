@@ -3,16 +3,17 @@ package stroo
 import (
 	"flag"
 	"fmt"
-	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/go/packages"
 	"log"
 	"os"
+
+	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/go/packages"
 )
 
 // loads one package
 func LoadPackage(path string) (*packages.Package, error) {
 	conf := packages.Config{
-		Mode:  packages.NeedName | packages.NeedFiles | packages.NeedImports | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax,
+		Mode:  packages.NeedName | packages.NeedFiles | packages.NeedImports | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax | packages.NeedTypesSizes,
 		Tests: false, //TODO : decide if tests are useful
 	}
 
